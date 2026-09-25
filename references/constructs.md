@@ -8,7 +8,7 @@ Anchor Modeling splits a domain into sixth-normal-form pieces:
 - **Every property** → its own table (attribute).
 - **Every relationship** → its own table (tie).
 
-The model grows by adding new tables, never altering existing ones. Old queries keep working. Data is append-only — changes are new rows with later timestamps, not overwrites.
+The model grows by adding new tables, never altering existing ones. Old queries keep working. Data is append-only — changes are new rows with later timestamps, not overwrites. Loads must therefore be incremental: truncating and reloading from a source that only holds current values destroys the history.
 
 Many narrow tables favor columnar engines like Snowflake: queries read only the columns they need, and selective conditions on one narrow table cut rows early.
 
@@ -23,8 +23,9 @@ A thing with an identity: a person, actor, stage, program.
 - `mnemonic`: 2-letter code, unique in model. Prefixes all generated names.
 - `descriptor`: PascalCase readable name.
 - `identity`: data type of surrogate ID.
-- Generated table: `{mnemonic}_{descriptor}` with one column `{mnemonic}_ID`.
+- Generated table: `{mnemonic}_{descriptor}` with `{mnemonic}_ID` and `Metadata_{mnemonic}`.
 - Use a sequence for auto-generated IDs.
+- Give it a static identifier attribute holding the source natural key, so loads can map source rows to surrogate IDs.
 
 **Use when** the thing has a persistent identity and other things relate to it.
 **Don't use** for value lists (that's a knot).
@@ -57,7 +58,7 @@ Generated table: `{anchor}_{attr}_{AnchorDesc}_{AttrDesc}` with columns:
 A small, shared set of stable values: genders, ratings, event types.
 
 - `mnemonic`: 3 letters, unique among knots.
-- `identity`: usually small type (tinyint).
+- `identity`: integer; in Snowflake all integer types are `NUMBER(38,0)`, so use `int`.
 - `dataRange`: type of the values themselves.
 - Used via `knotRange` on attributes, or via roles in ties/nexuses.
 
@@ -108,6 +109,8 @@ Example: Event nexus `EV_Event` with `EV_ID`, `ST_ID_wasHeldAt`, `PR_ID_wasPlaye
 
 **Chronicle**: An attribute with a `chronicle` ordinal places the nexus in time. Every nexus should have at least one.
 
+**Identifier**: Like an anchor, a nexus should have a static attribute holding the source key of the event, so incremental loads can tell which events are already loaded.
+
 **Use nexus when** a relationship is a happening: has its own properties, other things refer to it, or same anchors participate many times.
 **Use tie when** the relationship is fully described by who takes part.
 
@@ -145,3 +148,5 @@ Every table has `Metadata_XX int not null` for tracking source/batch of each row
 - **bi** (bitemporal): changing time + positing time.
 
 Constructs are the same in all three; only generated tables/perspectives differ.
+
+**Scope of this skill:** the DDL templates and loading patterns cover **uni-temporal** models only. For concurrent-reliance-temporal or bitemporal requests, explain the concepts, state that the skill has no templates for them, and ask before improvising DDL.

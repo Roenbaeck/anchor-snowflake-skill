@@ -1,12 +1,20 @@
 # Anchor Modeling Naming Conventions (Snowflake)
 
+## Identifier Case
+
+Snowflake stores **unquoted** identifiers in UPPERCASE. `AC_Actor` is created as `AC_ACTOR`, and `lAC_Actor` as `LAC_ACTOR`. Consequences:
+
+- Writing PascalCase in DDL is fine and keeps scripts readable, and unquoted references are case-insensitive. But `SHOW TABLES`, `INFORMATION_SCHEMA` and query results return the uppercase form.
+- The perspective prefix is no longer distinguishable by case: `LAC_ACTOR` looks like a construct with mnemonic `LAC`. Never classify objects by name alone. See the classification rules in SKILL.md (Q1).
+- Only quoted identifiers (`"AC_Actor"`) keep their case, and they must then be quoted with exactly that case everywhere. Do not mix quoted and unquoted forms for the same object.
+
 ## Unicode Characters Warning
 
 Snowflake identifiers containing non-ASCII characters (ö, å, ä, ü, é, etc.) MUST be double-quoted in all DDL and DML. This includes table names, column names, constraint names, sequence names, and all references in views and functions. Unquoted non-ASCII identifiers cause `syntax error ... unexpected` errors.
 
 **Options:**
 1. **ASCII-only identifiers** (recommended for international teams): transliterate special characters (ö→o, å→a, ä→a). Keeps all identifiers unquoted and case-insensitive.
-2. **Quoted identifiers** (preserves native language): double-quote every identifier with special characters. Note that quoted identifiers are case-sensitive, so all references must match the exact case used at creation.
+2. **Quoted identifiers** (preserves native language): double-quote every identifier with special characters. Quoted identifiers are case-sensitive, so all references must match the exact case used at creation.
 
 ## Mnemonics
 
@@ -31,6 +39,7 @@ Always PascalCase. Examples: `Actor`, `Stage`, `ProfessionalLevel`, `EventType`.
 | Static attribute | `{AN}_{ATR}_{AnchorDesc}_{AttrDesc}` | `PR_NAM_Program_Name` |
 | Historized attribute | Same as static | `AC_NAM_Actor_Name` |
 | Knotted attribute | Same pattern, but stores knot FK | `AC_GEN_Actor_Gender` |
+| Tie | `{type}_{role}` per role, joined by `_` | `AC_part_PR_in_RAT_got` |
 | Sequence | `{AN}_{Descriptor}_ID_SEQ` | `AC_Actor_ID_SEQ` |
 
 ## Column Names
@@ -47,7 +56,7 @@ Always PascalCase. Examples: `Actor`, `Stage`, `ProfessionalLevel`, `EventType`.
 | Metadata | `Metadata_{AN}` or `Metadata_{AN}_{ATR}` | `Metadata_AC`, `Metadata_AC_NAM` |
 | Tie role column | `{type}_ID_{role}` | `AC_ID_part`, `PR_ID_in` |
 | Tie ChangedAt | `{tie_name}_ChangedAt` | `ST_at_PR_isPlaying_ChangedAt` |
-| Tie Metadata | `Metadata_{tie_short}` | `Metadata_ST_at_PR_isPlaying` |
+| Tie Metadata | `Metadata_{tie_name}` (full tie name) | `Metadata_ST_at_PR_isPlaying` |
 | Nexus role column | `{type}_ID_{role}` | `ST_ID_wasHeldAt` |
 
 ## Tie Names
@@ -76,9 +85,12 @@ Same prefixes apply to tie perspectives: `lAC_part_PR_in_RAT_got`, `pST_at_PR_is
 |-----------|---------|---------|
 | Primary key | `pk{TableName}` | `pkAC_Actor` |
 | Unique | `uq{TableName}` | `uqRAT_Rating` |
-| Foreign key (attribute) | `fk{TableName}` | `fkAC_NAM_Actor_Name` |
+| Foreign key (attribute → owner) | `fk{TableName}` | `fkAC_NAM_Actor_Name` |
+| Foreign key (attribute → knot) | `fk_{AN}_{ATR}_{KNT}` | `fk_AC_GEN_GEN` |
 | Foreign key (tie role) | `{TieName}_fk{type}_{role}` | `AC_part_PR_in_RAT_got_fkAC_part` |
 | Foreign key (nexus role) | `{NexusName}_fk{type}_{role}` | `EV_Event_fkST_wasHeldAt` |
+
+All constraints are declared with `RELY` (see `ddl-patterns.md`, section 0).
 
 ## Schema
 
