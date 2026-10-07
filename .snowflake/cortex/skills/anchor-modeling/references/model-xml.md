@@ -45,7 +45,7 @@ Two files next to the generator are examples:
 - `dataRange` is a Snowflake data type (`varchar(42)`, `number(19,4)`, `datetime`, `geography`). `identity` is the type of the surrogate id of the construct.
 - A role of a tie names a construct by its mnemonic in `type`; a role on a knot takes the knot's mnemonic. `identifier="true"` marks the roles that identify a tie row.
 - An attribute that holds the natural key of its anchor (every anchor needs one, see R2 in `SKILL.md`) is marked in the modeler's XML with `<key>` and `<identifier>` elements, as `example-model.xml` shows. `minimal-model.xml` has none and generates, so they are not needed to get the DDL; keep them when the XML comes from the modeler.
-- `<metadata capsule="public"/>` on a construct is its schema. `generator="true"` on an anchor or a knot gives its id a sequence (`CREATE SEQUENCE ... ` and `default seq.nextval`); on a nexus it gives the id `IDENTITY(1,1)`.
+- `<metadata capsule="public"/>` on a construct is its schema. `generator="true"` on an anchor, a nexus or a knot gives its id a sequence (`CREATE SEQUENCE {Mnemonic}_{Descriptor}_ID_SEQ` and `default seq.nextval`), which the load patterns draw from.
 - A `<description>` on a construct becomes a `COMMENT` on its table and views.
 - `<layout>` elements, with `x`, `y` and `fixed`, are positions in the modeler's drawing. The generator ignores them.
 
