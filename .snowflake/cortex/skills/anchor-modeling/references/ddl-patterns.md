@@ -19,7 +19,15 @@ Snowflake enforces only `NOT NULL`. `PRIMARY KEY`, `UNIQUE` and `FOREIGN KEY` ar
 
 ### Clustering
 
-Do **not** add `CLUSTER BY` by default. Automatic clustering consumes credits and gives nothing on small tables; knots and most attribute tables never reach a size where it helps. Add `CLUSTER BY ({owner_id_column})` only to individual tables that are very large (multi-terabyte) and show poor pruning in query profiles.
+Every table gets a `CLUSTER BY`, the same as the DDL from the Anchor generator (see `generator.md`), so that a model written by hand and one generated agree:
+
+- knot, anchor, nexus: its own identity column (`{KNT}_ID`, `{AN}_ID`, `{NX}_ID`)
+- attribute: the identity of its owner (`{AN}_{ATR}_{AN}_ID`). `ChangedAt` is **not** in the key: a join finds the rows of one owner, and the history of an owner should stay together
+- tie: its identifier roles, or all its roles when none is marked as an identifier (the columns of its unique constraint). Never an empty list, which Snowflake rejects
+
+Clustering is declared, not free: automatic clustering consumes credits once a table is large enough for reclustering to matter, and on a small table it does little. If that cost is not wanted, leave the clause out of the tables that stay small; the model works the same without it.
+
+Load in key order (see the load patterns in SKILL.md): an `INSERT ... SELECT` with `ORDER BY` on the clustering key writes well-clustered micro-partitions from the start, so automatic clustering has less to rewrite.
 
 ### Idempotent DDL
 
@@ -38,7 +46,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{KNT}_{Descriptor} (
     constraint uq{KNT}_{Descriptor} unique (
         {KNT}_{Descriptor}
     ) rely
-);
+) CLUSTER BY ({KNT}_ID);
 COMMENT ON TABLE {schema}.{KNT}_{Descriptor} IS '{description}';
 ```
 
@@ -50,7 +58,7 @@ CREATE TABLE IF NOT EXISTS public.RAT_Rating (
     Metadata_RAT int not null,
     constraint pkRAT_Rating primary key (RAT_ID) rely,
     constraint uqRAT_Rating unique (RAT_Rating) rely
-);
+) CLUSTER BY (RAT_ID);
 ```
 
 **Checksum option** (for long knot values): Snowflake column defaults cannot reference other columns, so a checksum cannot be computed by the table. Add a plain column and fill it during loading:
@@ -69,7 +77,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{AN}_{Descriptor} (
     constraint pk{AN}_{Descriptor} primary key (
         {AN}_ID
     ) rely
-);
+) CLUSTER BY ({AN}_ID);
 COMMENT ON TABLE {schema}.{AN}_{Descriptor} IS '{description}';
 ```
 
@@ -80,7 +88,7 @@ CREATE TABLE IF NOT EXISTS public.AC_Actor (
     AC_ID int default public.AC_Actor_ID_SEQ.nextval not null,
     Metadata_AC int not null,
     constraint pkAC_Actor primary key (AC_ID) rely
-);
+) CLUSTER BY (AC_ID);
 ```
 
 ## 3. Nexus Table
@@ -102,7 +110,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{NX}_{Descriptor} (
     constraint pk{NX}_{Descriptor} primary key (
         {NX}_ID
     ) rely
-);
+) CLUSTER BY ({NX}_ID);
 COMMENT ON TABLE {schema}.{NX}_{Descriptor} IS '{description}';
 ```
 
@@ -119,7 +127,7 @@ CREATE TABLE IF NOT EXISTS public.EV_Event (
     constraint EV_Event_fkPR_wasPlayed foreign key (PR_ID_wasPlayed) references public.PR_Program(PR_ID) rely,
     constraint EV_Event_fkETY_of foreign key (ETY_ID_of) references public.ETY_EventType(ETY_ID) rely,
     constraint pkEV_Event primary key (EV_ID) rely
-);
+) CLUSTER BY (EV_ID);
 ```
 
 > **Why not IDENTITY?** Snowflake IDENTITY columns do not accept explicit values on INSERT. A load stages rows with IDs taken from the sequence (`seq.nextval`) and inserts those same IDs into the nexus and all its attribute tables. A sequence default allows this; IDENTITY does not.
@@ -141,7 +149,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} (
     constraint pk{AN}_{ATR}_{AnchorDesc}_{AttrDesc} primary key (
         {AN}_{ATR}_{AN}_ID
     ) rely
-);
+) CLUSTER BY ({AN}_{ATR}_{AN}_ID);
 ```
 
 Example (Program Name, static):
@@ -152,7 +160,7 @@ CREATE TABLE IF NOT EXISTS public.PR_NAM_Program_Name (
     Metadata_PR_NAM int not null,
     constraint fkPR_NAM_Program_Name foreign key (PR_NAM_PR_ID) references public.PR_Program(PR_ID) rely,
     constraint pkPR_NAM_Program_Name primary key (PR_NAM_PR_ID) rely
-);
+) CLUSTER BY (PR_NAM_PR_ID);
 ```
 
 ### 4b. Historized Attribute
@@ -172,7 +180,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} (
         {AN}_{ATR}_{AN}_ID,
         {AN}_{ATR}_ChangedAt
     ) rely
-);
+) CLUSTER BY ({AN}_{ATR}_{AN}_ID);
 ```
 
 Example (Actor Name, historized):
@@ -184,7 +192,7 @@ CREATE TABLE IF NOT EXISTS public.AC_NAM_Actor_Name (
     Metadata_AC_NAM int not null,
     constraint fkAC_NAM_Actor_Name foreign key (AC_NAM_AC_ID) references public.AC_Actor(AC_ID) rely,
     constraint pkAC_NAM_Actor_Name primary key (AC_NAM_AC_ID, AC_NAM_ChangedAt) rely
-);
+) CLUSTER BY (AC_NAM_AC_ID);
 ```
 
 ### 4c. Knotted Static Attribute
@@ -205,7 +213,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} (
     constraint pk{AN}_{ATR}_{AnchorDesc}_{AttrDesc} primary key (
         {AN}_{ATR}_{AN}_ID
     ) rely
-);
+) CLUSTER BY ({AN}_{ATR}_{AN}_ID);
 ```
 
 Example (Actor Gender, knotted static):
@@ -217,7 +225,7 @@ CREATE TABLE IF NOT EXISTS public.AC_GEN_Actor_Gender (
     constraint fkAC_GEN_Actor_Gender foreign key (AC_GEN_AC_ID) references public.AC_Actor(AC_ID) rely,
     constraint fk_AC_GEN_GEN foreign key (AC_GEN_GEN_ID) references public.GEN_Gender(GEN_ID) rely,
     constraint pkAC_GEN_Actor_Gender primary key (AC_GEN_AC_ID) rely
-);
+) CLUSTER BY (AC_GEN_AC_ID);
 ```
 
 ### 4d. Knotted Historized Attribute
@@ -240,7 +248,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} (
         {AN}_{ATR}_{AN}_ID,
         {AN}_{ATR}_ChangedAt
     ) rely
-);
+) CLUSTER BY ({AN}_{ATR}_{AN}_ID);
 ```
 
 ## 5. Tie Table
@@ -265,7 +273,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{tie_name} (
         references {schema}.{type2_table}({type2}_ID) rely,
     constraint {tie_name}_fk{KNT}_{knot_role} foreign key ({KNT}_ID_{knot_role})
         references {schema}.{KNT}_{KnotDesc}({KNT}_ID) rely
-);
+) CLUSTER BY ({identifier_role_columns});
 COMMENT ON TABLE {schema}.{tie_name} IS '{description}';
 ```
 
@@ -280,7 +288,7 @@ CREATE TABLE IF NOT EXISTS public.AC_part_PR_in_RAT_got (
     constraint AC_part_PR_in_RAT_got_fkAC_part foreign key (AC_ID_part) references public.AC_Actor(AC_ID) rely,
     constraint AC_part_PR_in_RAT_got_fkPR_in foreign key (PR_ID_in) references public.PR_Program(PR_ID) rely,
     constraint AC_part_PR_in_RAT_got_fkRAT_got foreign key (RAT_ID_got) references public.RAT_Rating(RAT_ID) rely
-);
+) CLUSTER BY (AC_ID_part, PR_ID_in);
 ```
 
 ### 5b. Historized Tie
@@ -302,7 +310,7 @@ CREATE TABLE IF NOT EXISTS {schema}.{tie_name} (
     constraint {tie_name}_fk{type2}_{role2} foreign key ({type2}_ID_{role2})
         references {schema}.{type2_table}({type2}_ID) rely
     -- plus FK constraints for any knot roles, as in 5a
-);
+) CLUSTER BY ({identifier_role_columns});
 ```
 
 ## 6. Latest Perspective (l prefix)
