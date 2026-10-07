@@ -107,7 +107,7 @@ In order, the templates for the temporalization produce:
 6. Perspectives for anchors, nexuses and ties: latest `l`, point-in-time `p`, now `n` and difference `d`
 7. `COMMENT`s from the descriptions of the model
 
-Tables are `CREATE TABLE IF NOT EXISTS`, so running the script again on a database that has the model adds what is new and changes nothing else. Views and functions are `CREATE OR REPLACE ... COPY GRANTS`, so grants on them survive. Every table has a `CLUSTER BY`, every key is declared `RELY`, and the default for *now* is `sysdate()` (UTC).
+Tables are `CREATE TABLE IF NOT EXISTS`, so running the script again on a database that has the model adds what is new and changes nothing else. Views and functions are `CREATE OR REPLACE ... COPY GRANTS`, so grants on them survive. Every table has a `CLUSTER BY`, every key is declared `RELY`, and the default for *now* is `sysdate()` (UTC). Every generated identity takes its value from a sequence named `{table}_ID_SEQ` (never `IDENTITY`): knots, anchors, nexuses and, in bi and crt, the posit of every attribute and tie (for example `ST_NAM_Stage_Name_Posit_ID_SEQ`). A load can therefore draw an identity first and insert it explicitly, as the load patterns in `SKILL.md` do.
 
 ## Errors
 
