@@ -14,13 +14,15 @@ Reference files. Load each one when a step says so, not all up front:
 - `references/constructs.md`: Anchor Modeling theory and construct definitions.
 - `references/ddl-patterns.md`: Snowflake DDL templates, perspective templates, integrity checks.
 - `references/naming-conventions.md`: naming rules and identifier-case behaviour.
+- `references/generator.md`: the Anchor generator, a set of Snowflake functions that makes the whole DDL script from the model XML (uni, bi and crt). Load it when generating DDL.
+- `references/model-xml.md`: the model XML that the generator reads, and how to write it. Load it with `generator.md`.
 
 **Environment:**
 
 - Run SQL with the Snowflake SQL execution tool the host provides (for example `snowflake_sql_execute`). If no such tool is available, hand the SQL to the user to run.
 - If an `ANCHOR_EXAMPLE.PUBLIC` database exists in the account, it holds a working theatre-domain model you can use as a live reference. Check with `SHOW SCHEMAS IN DATABASE ANCHOR_EXAMPLE` before relying on it. If it is missing, use the examples in the reference files.
 
-**Scope:** templates cover **uni-temporal** models. For concurrent-reliance-temporal or bitemporal requests, explain the concepts, say the skill has no templates for them, and ask before improvising DDL.
+**Scope:** the hand-written templates in `references/ddl-patterns.md` cover **uni-temporal** models. The Anchor generator (`references/generator.md`) makes DDL for **uni, bitemporal (bi) and concurrent-reliance-temporal (crt)** models; it is installed once per account. For a bitemporal or concurrent-reliance-temporal request, use the generator if it is installed. If it is not, explain the concepts, say that the generator is needed for them (`generator.md` says how to install it), and ask before improvising DDL.
 
 ## Intent Detection
 
@@ -124,7 +126,16 @@ Load `references/constructs.md`.
 
 **Goal:** Produce Snowflake SQL DDL.
 
-Load `references/ddl-patterns.md` and `references/naming-conventions.md`, then generate in this order:
+**Choose how to generate.** Check whether the Anchor generator is installed:
+
+```sql
+SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT;
+```
+
+- **Installed: use it.** Load `references/generator.md` and `references/model-xml.md`. Write the model XML from the approved design (or take the one the user has from the Anchor Modeler), call `ANCHOR_GENERATE`, search the result for the text `undefined` (it means incomplete `<metadata>`; do not run it), and present the script. This is the only way to get bitemporal and concurrent-reliance-temporal models, equivalence and checksums, and it gives the same DDL as the Anchor Modeler.
+- **Not installed:** offer to install it (`generator.md`, Install: one SQL file to run once). If the user declines, or the model is simple and uni-temporal, generate by hand as below.
+
+**By hand.** Load `references/ddl-patterns.md` and `references/naming-conventions.md`, then generate in this order:
 
 1. **Database and schema** (if new)
 2. **Knots**: lookup tables with identity + value + Metadata column
@@ -145,7 +156,7 @@ Rules:
 
 - Declare every PK, UNIQUE and FK constraint with `RELY`. Snowflake does not enforce them, but `RELY` lets the optimizer eliminate unused joins in perspectives.
 - Add `COMMENT` on every table and view using descriptions.
-- Do **not** add `CLUSTER BY` by default (see `ddl-patterns.md`, section 0).
+- Add `CLUSTER BY` to every table, by the identity of its owner (see `ddl-patterns.md`, section 0), as the generator does.
 - Use `CREATE OR REPLACE ... COPY GRANTS` for perspectives so grants survive re-creation.
 
 **⚠️ STOP**: Present the generated DDL for review before execution.
@@ -153,6 +164,8 @@ Rules:
 ### G4: Execute DDL
 
 Execute the approved DDL one statement at a time in dependency order. Verify each object was created successfully.
+
+A script from the generator is already in dependency order (a function exists before another function calls it). A statement ends at the first semicolon that is outside a `$$ ... $$` body. If a statement fails, stop and show the user the statement and the message; do not edit generated SQL to get past it, since the fix belongs in the templates.
 
 ---
 
@@ -276,6 +289,8 @@ ROOT_TASK (no schedule unless the user wants one; run via EXECUTE TASK)
 
 Replace `{db}.{sch}` with the fully-qualified schema and `{md}` with the Metadata value for the batch (agree with the user what it identifies, e.g. source system or batch number). Wrap each task body in `BEGIN ... END;`.
 
+Every table is clustered by the identity of its owner (`ddl-patterns.md`, section 0), so each `INSERT ... SELECT` below ends with an `ORDER BY` on that identity: the rows are written in key order and the micro-partitions start out clustered. Keep the `ORDER BY` in the statements you write for ties, nexus attributes and knotted attributes too.
+
 **Knots**: insert values not yet present. Knots have no sequence, so continue from the current max ID (only this task writes knots, so this is safe):
 
 ```sql
@@ -303,10 +318,10 @@ WHERE NOT EXISTS (
 );
 
 INSERT INTO {db}.{sch}.{AN}_{Descriptor} ({AN}_ID, Metadata_{AN})
-SELECT {AN}_ID, {md} FROM {an}_new;
+SELECT {AN}_ID, {md} FROM {an}_new ORDER BY {AN}_ID;
 
 INSERT INTO {db}.{sch}.{AN}_KOD_{Descriptor}_Code ({AN}_KOD_{AN}_ID, {AN}_KOD_{Descriptor}_Code, Metadata_{AN}_KOD)
-SELECT {AN}_ID, natural_key, {md} FROM {an}_new;
+SELECT {AN}_ID, natural_key, {md} FROM {an}_new ORDER BY {AN}_ID;
 
 DROP TABLE {an}_new;
 ```
@@ -323,7 +338,8 @@ WHERE src.{value_col} IS NOT NULL
     SELECT 1 FROM {db}.{sch}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} a
     WHERE a.{AN}_{ATR}_{AN}_ID = i.{AN}_KOD_{AN}_ID
   )
-GROUP BY i.{AN}_KOD_{AN}_ID;
+GROUP BY i.{AN}_KOD_{AN}_ID
+ORDER BY i.{AN}_KOD_{AN}_ID;
 ```
 
 **Historized attributes (restatement check)**: insert a row only when the value differs from the latest stored value and is newer. `ChangedAt` comes from the source's change timestamp if it has one, otherwise the load time `sysdate()` (UTC).
@@ -345,7 +361,8 @@ LEFT JOIN (
 ) cur ON cur.{AN}_{ATR}_{AN}_ID = s.id
 WHERE cur.{AN}_{ATR}_{AN}_ID IS NULL
    OR (s.changed_at > cur.{AN}_{ATR}_ChangedAt
-       AND s.val IS DISTINCT FROM cur.{AN}_{ATR}_{AnchorDesc}_{AttrDesc});
+       AND s.val IS DISTINCT FROM cur.{AN}_{ATR}_{AnchorDesc}_{AttrDesc})
+ORDER BY s.id;
 ```
 
 This takes one current value per key from a snapshot-style source. If the source holds several versions per key, keep them all, order by `changed_at` together with the latest stored row, and insert only the rows whose value differs from the previous one (`LAG`).

@@ -149,4 +149,4 @@ Every table has `Metadata_XX int not null` for tracking source/batch of each row
 
 Constructs are the same in all three; only generated tables/perspectives differ.
 
-**Scope of this skill:** the DDL templates and loading patterns cover **uni-temporal** models only. For concurrent-reliance-temporal or bitemporal requests, explain the concepts, state that the skill has no templates for them, and ask before improvising DDL.
+**Scope of this skill:** the hand-written DDL templates and the loading patterns cover **uni-temporal** models only. The Anchor generator (`generator.md`) makes the DDL for uni, bitemporal and concurrent-reliance-temporal models. For a bitemporal or concurrent-reliance-temporal request, use the generator; the loading patterns for them are not written yet, so ask the user before improvising a load.
