@@ -57,7 +57,9 @@ To get later updates to the skill, pull from the repository inside the workspace
 
 The skill can write DDL by hand for uni-temporal models. With the generator installed it gives the same DDL as the Anchor Modeler's *Generate SQL*, for all three temporalizations. The generator is four objects in one schema (a template engine, a model reader, the templates, and a function that ties them together), all running inside Snowflake.
 
-Install it once, in a schema of your choice, by running `generator/anchor_generator.sql` (in a Snowsight workspace: open the file, *Run all*). Then:
+**You do not have to install it yourself.** Ask Cortex Code to "install the Anchor generator": it checks whether it is there, asks which database and schema to use, and installs it with a Git repository in Snowflake (this uses the API integration from *Installation* above) or, if there is none, with the Snowflake CLI. If neither is possible it tells you the two steps to do by hand. The steps it runs are in `references/generator.md`.
+
+To do it by hand, run `generator/anchor_generator.sql` in a schema of your choice (in a Snowsight workspace: open the file, pick the schema, *Run all*). Then:
 
 ```sql
 SELECT ANCHOR_GENERATE($$<the model XML>$$, 'uni');   -- 'uni', 'bi', 'crt', or NULL for what the model says
@@ -65,7 +67,7 @@ SELECT ANCHOR_GENERATE($$<the model XML>$$, 'uni');   -- 'uni', 'bi', 'crt', or 
 
 returns the whole script for the model. Cortex Code does this itself when you ask it to generate an Anchor model and the generator is installed. See `references/generator.md` and `references/model-xml.md`.
 
-To update the generator, run a newer `anchor_generator.sql`; it replaces the four objects.
+To update the generator, ask Cortex Code to update it, or fetch the repository again and run the script again; it replaces the four objects.
 
 ## Requirements
 

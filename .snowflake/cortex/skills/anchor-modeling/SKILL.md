@@ -34,6 +34,36 @@ Reference files. Load each one when a step says so, not all up front:
 | EXTEND | "add attribute", "add anchor", "add tie", "add knot", "extend model", "new property" | [Step E1](#e1-identify-target) |
 | LOAD | "load data", "populate", "insert data", "load from source", "fill anchor model" | [Step L1](#l1-plan-the-task-graph) |
 | EXPLAIN | "explain anchor", "what is a knot", "how does", "anchor modeling concept" | [Step X1](#x1-explain) |
+| INSTALL | "install the generator", "set up the anchor generator", "update the generator", or a GENERATE request when the generator is wanted but not installed | [Step I1](#i1-check-and-choose-a-schema) |
+
+---
+
+## Install Workflow
+
+Installs, or updates, the Anchor generator (`references/generator.md`) in the user's account. You do this yourself with the SQL tool (or the shell, if the host has one); the user is not asked to run SQL, only to approve the steps. Load `references/generator.md`; it holds the exact statements.
+
+### I1: Check and Choose a Schema
+
+1. Check whether it is installed: `SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT;`. If it is, say where (database and schema) and stop, unless the user asked to update it; to update, go on to I2 with the same schema.
+2. Ask where to put it: a database and a schema. Suggest a schema called `ANCHOR_TOOLS` in a database the user already works in. The generator and the Git repository object it is installed from live in that schema.
+
+**⚠️ STOP**: Confirm the database, the schema, and that the user wants the generator's objects (three functions, a table and, for way A, a Git repository object) created there.
+
+### I2: Install
+
+Choose the way, in this order (details in `references/generator.md`, Install):
+
+1. **From a Git repository in Snowflake** (A): needs an API integration for GitHub. Check `SHOW API INTEGRATIONS;`. Use the one that allows `https://github.com/Roenbaeck`, else ask the user for its name, or whether they want to set one up (README, Installation, step 1).
+2. **With the Snowflake CLI** (B), if the host has a shell and a connected `snow` or SnowSQL.
+3. **By the user in Snowsight** (C), if neither is possible: give the steps, do not paste the script.
+
+Never read `anchor_generator.sql` into the conversation to send it back as SQL: it is about 450 KB.
+
+Run the statements in one session. If one fails, show the user the statement and the message and stop; do not work around a missing privilege by guessing.
+
+### I3: Verify
+
+Run the three checks under *After installing* in `references/generator.md`. Report the qualified name of `ANCHOR_GENERATE` to the user, and use that name in later steps.
 
 ---
 
@@ -133,7 +163,7 @@ SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT;
 ```
 
 - **Installed: use it.** Load `references/generator.md` and `references/model-xml.md`. Write the model XML from the approved design (or take the one the user has from the Anchor Modeler), call `ANCHOR_GENERATE`, search the result for the text `undefined` (it means incomplete `<metadata>`; do not run it), and present the script. This is the only way to get bitemporal and concurrent-reliance-temporal models, equivalence and checksums, and it gives the same DDL as the Anchor Modeler.
-- **Not installed:** offer to install it (`generator.md`, Install: one SQL file to run once). If the user declines, or the model is simple and uni-temporal, generate by hand as below.
+- **Not installed:** offer to install it yourself ([Step I1](#i1-check-and-choose-a-schema); it takes a few statements and no manual work for the user). If the user declines, or the model is simple and uni-temporal, generate by hand as below.
 
 **By hand.** Load `references/ddl-patterns.md` and `references/naming-conventions.md`, then generate in this order:
 
