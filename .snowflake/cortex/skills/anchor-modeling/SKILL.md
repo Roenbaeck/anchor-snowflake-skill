@@ -422,7 +422,7 @@ WHERE NOT EXISTS (
 
 Then, in the same `BEGIN ... END` block, INSERT into the nexus, its identifier attribute, ALL its other attribute tables, and its ties (`WHERE` the optional FK `IS NOT NULL`) from the staging table, using `{NX}_ID`. Drop the staging table at the end. Drawing IDs from the sequence (never `ROW_NUMBER()`) keeps them unique across runs and keeps the sequence in step with the table.
 
-After loading, run the integrity checks in `ddl-patterns.md` (section 11). Constraints are not enforced, and `RELY` makes the optimizer trust them, so duplicates would give wrong query results.
+After loading, run the integrity checks. Constraints are not enforced, and `RELY` makes the optimizer trust them, so duplicates would give wrong query results. For a model made by the generator, `SELECT * FROM {schema}.IntegrityViolations;` (or the `ic_{table}` view of what was loaded) must return no rows (`references/generator.md`, *Integrity checks*); for a model written by hand, use the queries in `ddl-patterns.md` (section 11).
 
 **⚠️ STOP**: Present the task graph design and load SQL for approval before creating tasks.
 
