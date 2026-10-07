@@ -55,7 +55,7 @@ To get later updates to the skill, pull from the repository inside the workspace
 
 ## The Anchor generator (optional)
 
-The skill can write DDL by hand for uni-temporal models. With the generator installed it gives the same DDL as the Anchor Modeler's *Generate SQL*, for all three temporalizations. The generator is four objects in one schema (a template engine, a model reader, the templates, and a function that ties them together), all running inside Snowflake.
+The skill can write DDL by hand for uni-temporal models. With the generator installed it gives the same DDL as the Anchor Modeler's *Generate SQL*, for all three temporalizations. The generator is four objects in one schema (a template engine, a model reader, the templates, and a function that ties them together), all running inside Snowflake. A model made by the generator also gets integrity checks (`IntegrityViolations` and a view per table), which matter because Snowflake does not enforce keys.
 
 **You do not have to install it yourself.** Ask Cortex Code to "install the Anchor generator": it checks whether it is there, asks which database and schema to use, and installs it with a Git repository in Snowflake (this uses the API integration from *Installation* above) or, if there is none, with the Snowflake CLI. If neither is possible it tells you the two steps to do by hand. The steps it runs are in `references/generator.md`.
 

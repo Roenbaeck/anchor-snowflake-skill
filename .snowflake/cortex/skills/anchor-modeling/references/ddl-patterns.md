@@ -462,7 +462,9 @@ Join knot roles to their knot tables to expose readable values, as in attribute 
 
 ## 11. Integrity Checks
 
-Constraints are not enforced, so verify after every load. Each query should return no rows:
+Constraints are not enforced, so verify after every load. Each query should return no rows.
+
+**A model made by the generator has these checks as views**, including the ones for restatement and, in bitemporal and concurrent reliance temporal models, for posits and annexes: `SELECT * FROM {schema}.IntegrityViolations;` (`references/generator.md`, *Integrity checks*). The queries below are for a model written by hand:
 
 ```sql
 -- Duplicate identities (anchor, nexus, knot)

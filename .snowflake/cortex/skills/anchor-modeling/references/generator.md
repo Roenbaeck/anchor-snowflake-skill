@@ -105,9 +105,34 @@ In order, the templates for the temporalization produce:
 4. Equivalence views for knots and attributes (when the model has equivalence)
 5. Rewinders (the `r` functions, the state of an attribute at a time of change)
 6. Perspectives for anchors, nexuses and ties: latest `l`, point-in-time `p`, now `n` and difference `d`
-7. `COMMENT`s from the descriptions of the model
+7. Integrity checks: a view `ic_{table}` for every table, and `IntegrityViolations` for the whole model (see below)
+8. `COMMENT`s from the descriptions of the model
 
 Tables are `CREATE TABLE IF NOT EXISTS`, so running the script again on a database that has the model adds what is new and changes nothing else. Views and functions are `CREATE OR REPLACE ... COPY GRANTS`, so grants on them survive. Every table has a `CLUSTER BY`, every key is declared `RELY`, and the default for *now* is `sysdate()` (UTC). Every generated identity takes its value from a sequence named `{table}_ID_SEQ` (never `IDENTITY`): knots, anchors, nexuses and, in bi and crt, the posit of every attribute and tie (for example `ST_NAM_Stage_Name_Posit_ID_SEQ`). A load can therefore draw an identity first and insert it explicitly, as the load patterns in `SKILL.md` do.
+
+## Integrity checks
+
+Snowflake does not enforce primary, unique or foreign keys, and the generated tables declare every key `RELY`, so the optimizer trusts them. A load that breaks a key gives wrong results, not an error. The generator therefore makes views that find the rows that break what the tables declare:
+
+```sql
+SELECT * FROM {schema}.IntegrityViolations;          -- the whole model; no rows is fine
+SELECT * FROM {schema}.ic_{table};                   -- one table, which reads only that table
+```
+
+`{schema}` is the model's default schema (the `encapsulation` setting) for `IntegrityViolations`, and the schema of the table for an `ic_` view. A row has four columns: `Construct` (the table), `Violation` (what is wrong), `ViolationKey` (the key of the rows, an object of column and value) and `Occurrences` (how many rows).
+
+| `Violation` | Meaning |
+|-------------|---------|
+| `duplicate primary key` | the same primary key more than once |
+| `duplicate unique key` | the same unique key more than once (for a tie with no identifier, the role is named) |
+| `no row in {table} for {column}` | a foreign key that points at nothing |
+| `restatement` | in a historized attribute or tie that may not store restatements (the `restatable` flag is false), a value that is the same as the one before it in changing time. uni only |
+
+Run them after every load. `IntegrityViolations` reads every table, so on a large model prefer the `ic_` view of what was loaded. When a check finds something, show the user the rows (`ViolationKey` tells which) and stop; do not delete rows without asking.
+
+**To see that they work** on a new installation, in a scratch schema: generate a small model, insert one row twice into an anchor table, insert an attribute row for an identity that has no anchor row, and run `IntegrityViolations`. It should name both. The checks join in a way that a `RELY` foreign key cannot remove, but only a test on the account shows that for certain.
+
+In bitemporal and concurrent reliance temporal models, an attribute or tie has a posit table and an annex table, and each has a view (`ic_{name}_Posit`, `ic_{name}_Annex`). The posit and annex keys and the references between them are checked; restatement and overlapping times are not.
 
 ## Errors
 
