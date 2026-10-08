@@ -26,17 +26,17 @@ ALTER GIT REPOSITORY ANCHOR_SKILL_REPO FETCH;
 EXECUTE IMMEDIATE FROM @ANCHOR_SKILL_REPO/branches/main/.snowflake/cortex/skills/anchor-modeling/generator/anchor_generator.sql;
 ```
 
-Use the name of the user's integration if it is not `github_api_integration`. Run these in one session, so that `USE SCHEMA` still holds for the last statement. The repository object stays in the schema; to **update** the generator later, run `ALTER GIT REPOSITORY ANCHOR_SKILL_REPO FETCH;` and the `EXECUTE IMMEDIATE FROM` again. The script holds no Jinja or Snowflake CLI template delimiters (`{{`, `{%`, `{#`, `<%`, `&{`), which the build checks, so it is safe to run this way.
+Use the name of the user's integration if it is not `github_api_integration`. Run these in one session, so that `USE SCHEMA` still holds for the last statement. The repository object stays in the schema; to **update** the generator later, run `ALTER GIT REPOSITORY ANCHOR_SKILL_REPO FETCH;` and the `EXECUTE IMMEDIATE FROM` again. The script holds none of the Jinja or CLI template delimiters (`{{`, `{%`, `{#`, `<%`, `&{`), which the build checks. It does hold `&&` (in the engine), which a tool that reads `&` as a variable changes (see B), so the last statement of the script checks that it arrived intact.
 
 ### B. With the Snowflake CLI, when there is a shell
 
-If the host has a shell and the Snowflake CLI (`snow --version`) or SnowSQL is connected to the account, give it the file:
+If the host has a shell and the Snowflake CLI (`snow --version`) is connected to the account, give it the file **with templating turned off**:
 
 ```
-snow sql -f <path to>/generator/anchor_generator.sql --database <db> --schema ANCHOR_TOOLS
+snow sql -f <path to>/generator/anchor_generator.sql --database <db> --schema ANCHOR_TOOLS --enable-templating NONE
 ```
 
-(create the schema first, with `snow sql -q "CREATE SCHEMA IF NOT EXISTS <db>.ANCHOR_TOOLS"`). The path is the `generator` folder next to `SKILL.md` in the workspace or checkout where the skill was found.
+`--enable-templating NONE` is not optional. By default the CLI reads `&` (and `<% %>`) in a script as the start of a variable, and the engine in the script has `&&` in it: without the flag the script arrives changed, and the generator fails when it is used with `JavaScript execution error: ... module is not defined in SISULATE`. Any other tool that runs the file has to be told not to read `&`, `{{ }}` or `<% %>` in it either. (Create the schema first, with `snow sql -q "CREATE SCHEMA IF NOT EXISTS <db>.ANCHOR_TOOLS"`.) The path is the `generator` folder next to `SKILL.md` in the workspace or checkout where the skill was found.
 
 ### C. By the user, in Snowsight
 
@@ -44,11 +44,11 @@ Ask the user to open `generator/anchor_generator.sql` in their workspace, select
 
 ### After installing
 
-Check that the objects exist and that the engine runs; neither needs the model:
+The last statement of the script runs the generator on a small model that is part of the script and returns one sentence: `The Anchor generator is installed and works: N characters of SQL for the example model`. That is the check; if it returns anything else, or an error, the script was changed on its way to Snowflake (see the table), and the install has to be done again in another way. Check also that the objects exist and that the engine runs; neither needs a model:
 
 ```sql
 SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN SCHEMA {db}.ANCHOR_TOOLS;
-SELECT COUNT(*) FROM {db}.ANCHOR_TOOLS.ANCHOR_TEMPLATE;                                        -- 40
+SELECT COUNT(*) FROM {db}.ANCHOR_TOOLS.ANCHOR_TEMPLATE;                                        -- 43
 SELECT {db}.ANCHOR_TOOLS.SISULATE('Hello $who$', '{"who":"Snowflake"}');                      -- Hello Snowflake
 ```
 
@@ -57,6 +57,7 @@ If a step fails, show the user the statement and the error message, and stop; St
 | Message | Cause |
 |---------|-------|
 | `Insufficient privileges` on a `CREATE` | the role lacks `CREATE FUNCTION`, `CREATE TABLE` or `CREATE GIT REPOSITORY` on the schema, or `USAGE` on the integration |
+| `JavaScript execution error: ... module is not defined in SISULATE`, or the last statement says that the output is not what it should be | the text of the script was changed on its way to Snowflake, for example by the CLI reading `&` as a variable (`&&` became `&` in the engine). Install again: with `snow sql ... --enable-templating NONE` (B), from the Git repository (A), or in Snowsight (C) |
 | `API integration ... does not exist` | name it as the user's integration is named, or set it up (README, Installation, step 1) |
 | the script ran but the functions are in another schema | `USE SCHEMA` did not hold for the script; find them with `SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT` and use the qualified name, or install again in one session |
 
