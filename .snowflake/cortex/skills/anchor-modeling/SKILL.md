@@ -247,7 +247,7 @@ Load `references/semantic-views.md`, which holds the tested pattern and says wha
 **Goal:** Know which anchors and attributes, and as of when.
 
 1. Ask which database and schema hold the model, and which anchors (or nexuses) and which of their attributes to expose. Keep it to one subject area.
-2. Ask as of when: **now** (the current state), or a fixed point in time. A semantic view has one point in time; there is no way to pass one when querying.
+2. Ask as of when: **now** (the current state), a **fixed** point in time, or **chosen per session** with a session variable (`$pit_timestamp`, set with `SET` by whoever queries; see the reference for what to check first). A fixed or current point in time is one per semantic view.
 3. For each anchor, read the column names of its point-in-time function (`SELECT * FROM TABLE({db}.{sch}."p{AN}_{Descriptor}"(SYSDATE())) LIMIT 0`) instead of building them from the naming rules.
 
 ### S2: Design
