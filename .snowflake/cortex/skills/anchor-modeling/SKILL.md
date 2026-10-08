@@ -1,6 +1,6 @@
 ---
 name: anchor-modeling
-description: "Full-lifecycle Anchor Modeling on Snowflake. Use for **ALL** requests involving Anchor Modeling: reverse-engineering an existing database into an Anchor model, generating Anchor model DDL, loading data into an Anchor model, querying Anchor model databases, extending models with new constructs, or explaining Anchor model patterns. Triggers: anchor model, anchor modeling, 6NF, sixth normal form, anchor table, historized attribute, knot table, tie table, nexus table, perspective view, temporal model, bitemporal, uni-temporal, reverse engineer to anchor, create anchor model."
+description: "Full-lifecycle Anchor Modeling on Snowflake. Use for **ALL** requests involving Anchor Modeling: reverse-engineering an existing database into an Anchor model, generating Anchor model DDL, loading data into an Anchor model, querying Anchor model databases, extending models with new constructs, building semantic views on an Anchor model, or explaining Anchor model patterns. Triggers: anchor model, anchor modeling, 6NF, sixth normal form, anchor table, historized attribute, knot table, tie table, nexus table, perspective view, temporal model, bitemporal, uni-temporal, reverse engineer to anchor, create anchor model, semantic view on anchor model."
 ---
 
 # Anchor Modeling
@@ -16,6 +16,7 @@ Reference files. Load each one when a step says so, not all up front:
 - `references/naming-conventions.md`: naming rules and identifier-case behaviour.
 - `references/generator.md`: the Anchor generator, a set of Snowflake functions that makes the whole DDL script from the model XML (uni, bi and crt). Load it when generating DDL.
 - `references/model-xml.md`: the model XML that the generator reads, and how to write it. Load it with `generator.md`.
+- `references/semantic-views.md`: semantic views on an Anchor model, including as of a point in time. Load it when the user wants one.
 
 **Environment:**
 
@@ -33,6 +34,7 @@ Reference files. Load each one when a step says so, not all up front:
 | QUERY | "query anchor", "how to query", "perspective", "latest view", "point in time" | [Step Q1](#q1-identify-model) |
 | EXTEND | "add attribute", "add anchor", "add tie", "add knot", "extend model", "new property" | [Step E1](#e1-identify-target) |
 | LOAD | "load data", "populate", "insert data", "load from source", "fill anchor model" | [Step L1](#l1-plan-the-task-graph) |
+| SEMANTIC VIEW | "semantic view", "semantic model", "Cortex Analyst", "metrics and dimensions on the anchor model" | [Step S1](#s1-choose-what-to-expose) |
 | EXPLAIN | "explain anchor", "what is a knot", "how does", "anchor modeling concept" | [Step X1](#x1-explain) |
 | INSTALL | "install the generator", "set up the anchor generator", "update the generator", or a GENERATE request when the generator is wanted but not installed | [Step I1](#i1-check-and-choose-a-schema) |
 
@@ -233,6 +235,30 @@ Load `references/naming-conventions.md`.
 - **For change tracking**: Use difference perspectives (`dXX_...(start, end)`).
 - **For simple lookups**: Query individual tables directly.
 - Always explain what the perspective joins under the hood.
+
+---
+
+## Semantic View Workflow
+
+Load `references/semantic-views.md`, which holds the tested pattern and says what is not tested.
+
+### S1: Choose What to Expose
+
+**Goal:** Know which anchors and attributes, and as of when.
+
+1. Ask which database and schema hold the model, and which anchors (or nexuses) and which of their attributes to expose. Keep it to one subject area.
+2. Ask as of when: **now** (the current state), or a fixed point in time. A semantic view has one point in time; there is no way to pass one when querying.
+3. For each anchor, read the column names of its point-in-time function (`SELECT * FROM TABLE({db}.{sch}."p{AN}_{Descriptor}"(SYSDATE())) LIMIT 0`) instead of building them from the naming rules.
+
+### S2: Design
+
+For each anchor: one logical table (a `SELECT` over `TABLE("p…"(…))`, or the `n`/`l` view for the current state), the identity as `PRIMARY KEY`, an unquoted lower case alias for every column, a dimension per attribute, and at least `COUNT` of the identity as a metric. Use the descriptions of the model as comments. Ties are relationships: say that this part is not tested (see the reference) before writing it.
+
+**⚠️ STOP**: Present the semantic view for review before creating it.
+
+### S3: Create and Check
+
+Run the `CREATE OR REPLACE SEMANTIC VIEW`, then check it with a query: `SELECT * FROM SEMANTIC_VIEW({view} DIMENSIONS {table}.{dimension} METRICS {table}.{metric});`. If Snowflake rejects the logical table, show the user the message and fall back to the `n` view as the source; do not guess.
 
 ---
 
