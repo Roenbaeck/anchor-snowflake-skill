@@ -89,7 +89,7 @@ SELECT * FROM SEMANTIC_VIEW(
 );
 ```
 
-**Check that the variable is read when the view is queried, not when it is created** (the query above does not show that). After creating the view, query it, change the variable, and query again; a model with history must give different answers for two dates that fall on either side of a change:
+**The variable is read when the view is queried.** `SELECT GET_DDL('SEMANTIC_VIEW', 'ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var')` returns the definition with `$pit_timestamp` in it, not a value, so nothing is substituted when the view is created. To see it in the results too, query the view, change the variable, and query again: a model with history gives different answers for two dates on either side of a change.
 
 ```sql
 SET pit_timestamp = '2020-01-01'::TIMESTAMP_NTZ;
@@ -98,11 +98,10 @@ SET pit_timestamp = SYSDATE();
 SELECT * FROM SEMANTIC_VIEW(ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var METRICS actors.actor_count);
 ```
 
-What to keep in mind (the first two follow from how a session variable works; none of this has been tried):
+What to keep in mind:
 
-- A variable belongs to a **session**. Everyone who queries the view must `SET` it in their own session, and a client that opens its own session (a BI tool, a service such as Cortex Analyst) will not have it. Find out what an unset variable gives (probably a `NULL` timestamp and no rows) before handing the view to anyone.
+- A variable belongs to a **session**, and **a query in a session where it has not been set fails**: `SQL compilation error: ... Session variable '$PIT_TIMESTAMP' does not exist`. It is an error, not an empty result, and there is no default to fall back on (a `COALESCE($pit_timestamp, SYSDATE())` cannot help, since the error comes before it is evaluated). Everyone who queries the view must `SET` it in their own session first, even to `SYSDATE()` for the current state. A client that opens its own session (a BI tool, a service such as Cortex Analyst) will therefore get the error until something sets the variable for it; if such a client is the audience, use the fixed or current point in time instead.
 - Set it with the type that the function takes: `TIMESTAMP_NTZ`, in UTC (`SYSDATE()` for now).
-- A default for the unset case, `COALESCE($pit_timestamp, SYSDATE())` in the function call, is an idea that has **not been tested**.
 
 ## How to build one
 
