@@ -52,7 +52,7 @@ SELECT * FROM SEMANTIC_VIEW(
 A **session variable** in place of the fixed timestamp lets whoever queries choose the point in time. This was also found by trial and error and works in the account where it was tried:
 
 ```sql
-SET pit_timestamp = '2024-12-31'::TIMESTAMP_NTZ;
+SET pit_timestamp = '2024-06-15 12:00:00'::TIMESTAMP_NTZ;
 
 CREATE OR REPLACE SEMANTIC VIEW ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var
   TABLES (
@@ -80,7 +80,16 @@ CREATE OR REPLACE SEMANTIC VIEW ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var
   COMMENT = 'Semantic view with session variable timestamp'
 ```
 
-**Check that the variable is read when the view is queried, not when it is created.** After creating the view, query it, change the variable, and query again; a model with history must give different answers for two dates that fall on either side of a change:
+With the variable set, the view is queried as usual, and this was run and works:
+
+```sql
+SELECT * FROM SEMANTIC_VIEW(
+  ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var
+  METRICS actors.actor_count
+);
+```
+
+**Check that the variable is read when the view is queried, not when it is created** (the query above does not show that). After creating the view, query it, change the variable, and query again; a model with history must give different answers for two dates that fall on either side of a change:
 
 ```sql
 SET pit_timestamp = '2020-01-01'::TIMESTAMP_NTZ;
