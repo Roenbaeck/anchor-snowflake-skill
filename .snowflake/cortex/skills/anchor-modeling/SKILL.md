@@ -56,7 +56,7 @@ Installs, or updates, the Anchor generator (`references/generator.md`) in the us
 Choose the way, in this order (details in `references/generator.md`, Install):
 
 1. **From a Git repository in Snowflake** (A): needs an API integration for GitHub. Check `SHOW API INTEGRATIONS;`. Use the one that allows `https://github.com/Roenbaeck`, else ask the user for its name, or whether they want to set one up (README, Installation, step 1).
-2. **With the Snowflake CLI** (B), if the host has a shell and a connected `snow` or SnowSQL.
+2. **With the Snowflake CLI** (B), if the host has a shell and a connected `snow`: always with `--enable-templating NONE`, or the engine in the script is changed (`&&` becomes `&`) and fails.
 3. **By the user in Snowsight** (C), if neither is possible: give the steps, do not paste the script.
 
 Never read `anchor_generator.sql` into the conversation to send it back as SQL: it is about 450 KB.
@@ -65,7 +65,7 @@ Run the statements in one session. If one fails, show the user the statement and
 
 ### I3: Verify
 
-Run the three checks under *After installing* in `references/generator.md`. Report the qualified name of `ANCHOR_GENERATE` to the user, and use that name in later steps.
+Read the result of the last statement of the script (it says whether the generator works), and run the three checks under *After installing* in `references/generator.md`. Report the qualified name of `ANCHOR_GENERATE` to the user, and use that name in later steps.
 
 ---
 
