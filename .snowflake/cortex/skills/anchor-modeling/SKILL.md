@@ -320,28 +320,44 @@ Load `references/ddl-patterns.md` and `references/naming-conventions.md`.
 
 ### L1: Plan the Task Graph
 
-Design a DAG with these dependency layers:
+Design a DAG in which **every task waits only for what it needs**. Names are made from mnemonics (ASCII), so the task names need no quoting.
 
 ```
-ROOT_TASK (no schedule unless the user wants one; run via EXECUTE TASK)
-    ├─→ LOAD_KNOTS ─────────────┐   (all knots)
-    └─→ LOAD_ANCHORS ─────┐     │   (new anchor IDs + identifier attributes)
-                          │     │
-                          ├─────┼─→ LOAD_ANCHOR_ATTRIBUTES  (after KNOTS and ANCHORS)
-                          ├─────┼─→ LOAD_TIES               (after KNOTS and ANCHORS)
-                          └─────┼─→ LOAD_{nexus1}           (after KNOTS and ANCHORS)
-                                └─→ LOAD_{nexus2}
+LOAD_ROOT                      (no work; run with EXECUTE TASK unless the user wants a schedule)
+ ├─→ LOAD_KNOTS                      (all knots, in one task: they are small)
+ ├─→ LOAD_{AN1}                      (new anchor identities + the identifier attribute of anchor 1)
+ │     ├─→ LOAD_{AN1}_{ATR1}         (one task per attribute: static, historized, knotted)
+ │     ├─→ LOAD_{AN1}_{ATR2}  ←──────┤ AFTER LOAD_{AN1} and, for a knotted attribute, LOAD_KNOTS
+ │     └─→ ...
+ ├─→ LOAD_{AN2}  ...  (anchors are independent of each other, so they load in parallel)
+ ├─→ LOAD_{tie1}                     (AFTER the anchors of its roles, and LOAD_KNOTS if it has a knot role)
+ ├─→ LOAD_{NX1}                      (AFTER the anchors, knots and other nexuses of its roles)
+ │     └─→ LOAD_{NX1}_{ATR}          (AFTER LOAD_{NX1}, and LOAD_KNOTS if knotted)
+ └─→ ...
+LOAD_FINAL                     (finalizer: the integrity checks)
 ```
 
-**Parallelism rules:**
-- LOAD_KNOTS and LOAD_ANCHORS run **in parallel** (no cross-dependencies).
-- Everything else depends on **both** LOAD_KNOTS and LOAD_ANCHORS (fan-in), because knotted attributes, knotted ties and nexus roles need knot IDs as well as anchor IDs.
-- LOAD_ANCHOR_ATTRIBUTES, LOAD_TIES and the nexus loads run **in parallel** with each other.
+**Dependencies, precisely:**
+- `LOAD_KNOTS` and every `LOAD_{AN}` run in **parallel**, directly after the root.
+- An attribute needs the identities of its anchor, and the knot identities if it is knotted: `AFTER LOAD_{AN}` or `AFTER LOAD_{AN}, LOAD_KNOTS`. **All attributes of an anchor run in parallel with each other** (each writes its own table). Nexus attributes work the same way after their nexus.
+- A tie needs the identities of every anchor and nexus in its roles, and the knots if it has a knot role: `AFTER LOAD_{AN1}, LOAD_{AN2}, LOAD_KNOTS`. A tie does not wait for the attributes of the anchors.
+- A nexus loads after the anchors, knots and nexuses in its roles, then its identifier attribute, then its other attributes (as for an anchor).
+- Only the identifier attribute of an anchor or nexus is part of the anchor's own task: the other attributes map source rows to identities through it.
+
+**Finalizer.** `CREATE TASK LOAD_FINAL WAREHOUSE = {wh} FINALIZE = LOAD_ROOT AS ...` runs when the whole graph has finished, also when a task failed. A finalizer has no schedule and no children. Use it for the integrity checks (`SELECT * FROM {schema}.IntegrityViolations`, for example writing the result to a log table), so that they run on every load.
+
+**Limits of a task graph (Snowflake):** at most **1,000 tasks** per graph, **100 child tasks** per task and **100 predecessors** per task. Count the tasks before creating them (root, knots, anchors, attributes, ties, nexuses, nexus attributes, finalizer) and then:
+- more than 99 anchors and ties directly under the root: put a layer of grouping tasks (no work) between the root and them;
+- an anchor with more than 100 attributes, or a tie with more than 100 predecessors: group;
+- more than 1,000 tasks in all: **one task per anchor for its attributes** (`LOAD_{AN}_ATTRIBUTES`, whose body runs the attribute statements one after the other) instead of one task per attribute. Say which of the two you use, and why.
+
+**Compute.** Parallel tasks on one warehouse share it, so a graph with many parallel tasks queues unless the warehouse is large enough or multi-cluster. Serverless tasks (`USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE` instead of `WAREHOUSE`) are managed per task. Ask the user which they want; the default is a named warehouse (L3).
 
 **Root task** does no loading work itself (`SELECT 1` or a logging insert). It only anchors the graph.
 
-**Initial load / full rebuild** is not part of the graph. If the user wants to start over, provide a separate truncate script: ties → nexus attributes → nexuses → anchor attributes → anchors → knots. Reset the sequences only if the tables are empty. Warn explicitly that it destroys all history, and run it only after the user confirms.
+**Initial load / full rebuild** is not part of the graph. If the user wants to start over, provide a separate truncate script: ties → nexus attributes → nexuses → anchor attributes → anchors → knots. Reset the sequences only if the tables are empty. Warn explicitly that it destroys all history, and run it only after the user has confirmed.
 
+**Only the uni-temporal patterns below are written.** For bitemporal and concurrent-reliance-temporal models the graph has the same shape (posits instead of rows), but there are no load statements yet: tell the user.
 ### L2: Load Patterns
 
 Replace `{db}.{sch}` with the fully-qualified schema and `{md}` with the Metadata value for the batch (agree with the user what it identifies, e.g. source system or batch number). Wrap each task body in `BEGIN ... END;`.
@@ -451,12 +467,12 @@ Then, in the same `BEGIN ... END` block, INSERT into the nexus, its identifier a
 
 After loading, run the integrity checks. Constraints are not enforced, and `RELY` makes the optimizer trust them, so duplicates would give wrong query results. For a model made by the generator, `SELECT * FROM {schema}.IntegrityViolations;` (or the `ic_{table}` view of what was loaded) must return no rows (`references/generator.md`, *Integrity checks*); for a model written by hand, use the queries in `ddl-patterns.md` (section 11).
 
-**⚠️ STOP**: Present the task graph design and load SQL for approval before creating tasks.
+**⚠️ STOP**: Present the task graph design (the dependencies, the number of tasks against the limits in L1, and the compute) and the load SQL for approval before creating tasks.
 
 ### L3: Task Creation Rules
 
 - **No schedule on the root task** unless the user asks for one. Run on demand: `EXECUTE TASK {root_task};`
-- **Use warehouse-based tasks** (not serverless) with a named warehouse.
+- **Use warehouse-based tasks with a named warehouse by default**, and ask whether serverless tasks are wanted instead (see L1, Compute). The tasks of a graph run in parallel on the one warehouse, so say whether it is sized for that.
 - **Use BEGIN...END blocks** for multi-statement task bodies (Snowflake Scripting).
 - **Use fully-qualified three-part names** (`database.schema.object`) for every table and sequence in task bodies. Do not rely on the task's session context for name resolution.
 - **Resume child tasks before running the root.** Run `ALTER TASK {child} RESUME` for each child, which works whether or not the root has a schedule. `SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{root_task}')` resumes the whole graph including the root, so only use it when the root has a schedule and should start running on it.
