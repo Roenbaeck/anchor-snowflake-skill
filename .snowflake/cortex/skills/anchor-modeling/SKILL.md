@@ -185,6 +185,7 @@ SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT;
 Rules:
 
 - Declare every PK, UNIQUE and FK constraint with `RELY`. Snowflake does not enforce them, but `RELY` lets the optimizer eliminate unused joins in perspectives.
+- Write every name from the model in double quotes (see Identifier Quoting under Snowflake-Specific Pitfalls); the schema is not quoted.
 - Add `COMMENT` on every table and view using descriptions.
 - Add `CLUSTER BY` to every table, by the identity of its owner (see `ddl-patterns.md`, section 0), as the generator does.
 - Use `CREATE OR REPLACE ... COPY GRANTS` for perspectives so grants survive re-creation.
@@ -210,7 +211,7 @@ Load `references/naming-conventions.md`.
 **Actions:**
 
 1. Ask which database/schema contains the Anchor model.
-2. Classify objects by **kind and column structure**, not by name alone. Snowflake returns unquoted names in uppercase, so `lAC_Actor` appears as `LAC_ACTOR` and cannot be told apart from a `LAC` mnemonic by its name.
+2. Classify objects by **kind and column structure**, not by name alone. A database made without quotes has upper case names, so `lAC_Actor` appears as `LAC_ACTOR` and cannot be told apart from a `LAC` mnemonic by its name (a database from the generator keeps the case: `"lAC_Actor"`).
    - `SHOW VIEWS IN SCHEMA`: latest (`L…`) and now (`N…`) perspectives. Confirm by stripping the first character and matching an existing table name.
    - `SHOW USER FUNCTIONS IN SCHEMA`: point-in-time (`P…`) and difference (`D…`) perspectives.
    - Tables: read `INFORMATION_SCHEMA.COLUMNS` and classify by columns:
@@ -324,15 +325,15 @@ Every table is clustered by the identity of its owner (`ddl-patterns.md`, sectio
 **Knots**: insert values not yet present. Knots have no sequence, so continue from the current max ID (only this task writes knots, so this is safe):
 
 ```sql
-INSERT INTO {db}.{sch}.{KNT}_{Descriptor} ({KNT}_ID, {KNT}_{Descriptor}, Metadata_{KNT})
+INSERT INTO {db}.{sch}."{KNT}_{Descriptor}" ("{KNT}_ID", "{KNT}_{Descriptor}", "Metadata_{KNT}")
 SELECT
-    COALESCE((SELECT max({KNT}_ID) FROM {db}.{sch}.{KNT}_{Descriptor}), 0)
+    COALESCE((SELECT max("{KNT}_ID") FROM {db}.{sch}."{KNT}_{Descriptor}"), 0)
         + ROW_NUMBER() OVER (ORDER BY v.val),
     v.val,
     {md}
 FROM (SELECT DISTINCT src.{value_col} AS val FROM {source} src WHERE src.{value_col} IS NOT NULL) v
 WHERE NOT EXISTS (
-    SELECT 1 FROM {db}.{sch}.{KNT}_{Descriptor} k WHERE k.{KNT}_{Descriptor} = v.val
+    SELECT 1 FROM {db}.{sch}."{KNT}_{Descriptor}" k WHERE k."{KNT}_{Descriptor}" = v.val
 );
 ```
 
@@ -340,18 +341,18 @@ WHERE NOT EXISTS (
 
 ```sql
 CREATE OR REPLACE TEMPORARY TABLE {an}_new AS
-SELECT {db}.{sch}.{AN}_{Descriptor}_ID_SEQ.nextval AS {AN}_ID, k.natural_key
+SELECT {db}.{sch}."{AN}_{Descriptor}_ID_SEQ".nextval AS "{AN}_ID", k.natural_key
 FROM (SELECT DISTINCT src.{key_col} AS natural_key FROM {source} src WHERE src.{key_col} IS NOT NULL) k
 WHERE NOT EXISTS (
-    SELECT 1 FROM {db}.{sch}.{AN}_KOD_{Descriptor}_Code i
-    WHERE i.{AN}_KOD_{Descriptor}_Code = k.natural_key
+    SELECT 1 FROM {db}.{sch}."{AN}_KOD_{Descriptor}_Code" i
+    WHERE i."{AN}_KOD_{Descriptor}_Code" = k.natural_key
 );
 
-INSERT INTO {db}.{sch}.{AN}_{Descriptor} ({AN}_ID, Metadata_{AN})
-SELECT {AN}_ID, {md} FROM {an}_new ORDER BY {AN}_ID;
+INSERT INTO {db}.{sch}."{AN}_{Descriptor}" ("{AN}_ID", "Metadata_{AN}")
+SELECT "{AN}_ID", {md} FROM {an}_new ORDER BY "{AN}_ID";
 
-INSERT INTO {db}.{sch}.{AN}_KOD_{Descriptor}_Code ({AN}_KOD_{AN}_ID, {AN}_KOD_{Descriptor}_Code, Metadata_{AN}_KOD)
-SELECT {AN}_ID, natural_key, {md} FROM {an}_new ORDER BY {AN}_ID;
+INSERT INTO {db}.{sch}."{AN}_KOD_{Descriptor}_Code" ("{AN}_KOD_{AN}_ID", "{AN}_KOD_{Descriptor}_Code", "Metadata_{AN}_KOD")
+SELECT "{AN}_ID", natural_key, {md} FROM {an}_new ORDER BY "{AN}_ID";
 
 DROP TABLE {an}_new;
 ```
@@ -359,39 +360,39 @@ DROP TABLE {an}_new;
 **Static attributes**: insert only for owners that have no row yet. Map source rows to IDs through the identifier attribute.
 
 ```sql
-INSERT INTO {db}.{sch}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} ({AN}_{ATR}_{AN}_ID, {AN}_{ATR}_{AnchorDesc}_{AttrDesc}, Metadata_{AN}_{ATR})
-SELECT i.{AN}_KOD_{AN}_ID, any_value(src.{value_col}), {md}
+INSERT INTO {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" ("{AN}_{ATR}_{AN}_ID", "{AN}_{ATR}_{AnchorDesc}_{AttrDesc}", "Metadata_{AN}_{ATR}")
+SELECT i."{AN}_KOD_{AN}_ID", any_value(src.{value_col}), {md}
 FROM {source} src
-JOIN {db}.{sch}.{AN}_KOD_{AnchorDesc}_Code i ON i.{AN}_KOD_{AnchorDesc}_Code = src.{key_col}
+JOIN {db}.{sch}."{AN}_KOD_{AnchorDesc}_Code" i ON i."{AN}_KOD_{AnchorDesc}_Code" = src.{key_col}
 WHERE src.{value_col} IS NOT NULL
   AND NOT EXISTS (
-    SELECT 1 FROM {db}.{sch}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} a
-    WHERE a.{AN}_{ATR}_{AN}_ID = i.{AN}_KOD_{AN}_ID
+    SELECT 1 FROM {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" a
+    WHERE a."{AN}_{ATR}_{AN}_ID" = i."{AN}_KOD_{AN}_ID"
   )
-GROUP BY i.{AN}_KOD_{AN}_ID
-ORDER BY i.{AN}_KOD_{AN}_ID;
+GROUP BY i."{AN}_KOD_{AN}_ID"
+ORDER BY i."{AN}_KOD_{AN}_ID";
 ```
 
 **Historized attributes (restatement check)**: insert a row only when the value differs from the latest stored value and is newer. `ChangedAt` comes from the source's change timestamp if it has one, otherwise the load time `sysdate()` (UTC).
 
 ```sql
-INSERT INTO {db}.{sch}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc} ({AN}_{ATR}_{AN}_ID, {AN}_{ATR}_{AnchorDesc}_{AttrDesc}, {AN}_{ATR}_ChangedAt, Metadata_{AN}_{ATR})
+INSERT INTO {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" ("{AN}_{ATR}_{AN}_ID", "{AN}_{ATR}_{AnchorDesc}_{AttrDesc}", "{AN}_{ATR}_ChangedAt", "Metadata_{AN}_{ATR}")
 SELECT s.id, s.val, s.changed_at, {md}
 FROM (
-    SELECT i.{AN}_KOD_{AN}_ID AS id, src.{value_col} AS val, {changed_at_expr} AS changed_at
+    SELECT i."{AN}_KOD_{AN}_ID" AS id, src.{value_col} AS val, {changed_at_expr} AS changed_at
     FROM {source} src
-    JOIN {db}.{sch}.{AN}_KOD_{AnchorDesc}_Code i ON i.{AN}_KOD_{AnchorDesc}_Code = src.{key_col}
+    JOIN {db}.{sch}."{AN}_KOD_{AnchorDesc}_Code" i ON i."{AN}_KOD_{AnchorDesc}_Code" = src.{key_col}
     WHERE src.{value_col} IS NOT NULL
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY i.{AN}_KOD_{AN}_ID ORDER BY {changed_at_expr} DESC) = 1
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY i."{AN}_KOD_{AN}_ID" ORDER BY {changed_at_expr} DESC) = 1
 ) s
 LEFT JOIN (
     SELECT *
-    FROM {db}.{sch}.{AN}_{ATR}_{AnchorDesc}_{AttrDesc}
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY {AN}_{ATR}_{AN}_ID ORDER BY {AN}_{ATR}_ChangedAt DESC) = 1
-) cur ON cur.{AN}_{ATR}_{AN}_ID = s.id
-WHERE cur.{AN}_{ATR}_{AN}_ID IS NULL
-   OR (s.changed_at > cur.{AN}_{ATR}_ChangedAt
-       AND s.val IS DISTINCT FROM cur.{AN}_{ATR}_{AnchorDesc}_{AttrDesc})
+    FROM {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}"
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY "{AN}_{ATR}_{AN}_ID" ORDER BY "{AN}_{ATR}_ChangedAt" DESC) = 1
+) cur ON cur."{AN}_{ATR}_{AN}_ID" = s.id
+WHERE cur."{AN}_{ATR}_{AN}_ID" IS NULL
+   OR (s.changed_at > cur."{AN}_{ATR}_ChangedAt"
+       AND s.val IS DISTINCT FROM cur."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}")
 ORDER BY s.id;
 ```
 
@@ -406,17 +407,17 @@ This takes one current value per key from a snapshot-style source. If the source
 ```sql
 CREATE OR REPLACE TEMPORARY TABLE {nx}_staging AS
 SELECT
-    {db}.{sch}.{NX}_{Descriptor}_ID_SEQ.nextval AS {NX}_ID,
+    {db}.{sch}."{NX}_{Descriptor}_ID_SEQ".nextval AS "{NX}_ID",
     src.{event_key_col} AS event_key,
-    anchor_map.{AN}_KOD_{AN}_ID AS anchor_fk,
-    knot_map.{KNT}_ID AS knot_fk,
+    anchor_map."{AN}_KOD_{AN}_ID" AS anchor_fk,
+    knot_map."{KNT}_ID" AS knot_fk,
     src.{value_col} AS val
 FROM {source} src
-JOIN {db}.{sch}.{AN}_KOD_{AnchorDesc}_Code anchor_map ON anchor_map.{AN}_KOD_{AnchorDesc}_Code = src.{source_code}
-LEFT JOIN {db}.{sch}.{KNT}_{KnotDesc} knot_map ON knot_map.{KNT}_{KnotDesc} = src.{source_value}
+JOIN {db}.{sch}."{AN}_KOD_{AnchorDesc}_Code" anchor_map ON anchor_map."{AN}_KOD_{AnchorDesc}_Code" = src.{source_code}
+LEFT JOIN {db}.{sch}."{KNT}_{KnotDesc}" knot_map ON knot_map."{KNT}_{KnotDesc}" = src.{source_value}
 WHERE NOT EXISTS (
-    SELECT 1 FROM {db}.{sch}.{NX}_KOD_{Descriptor}_Code e
-    WHERE e.{NX}_KOD_{Descriptor}_Code = src.{event_key_col}
+    SELECT 1 FROM {db}.{sch}."{NX}_KOD_{Descriptor}_Code" e
+    WHERE e."{NX}_KOD_{Descriptor}_Code" = src.{event_key_col}
 );
 ```
 
@@ -453,14 +454,8 @@ ORDER BY scheduled_time;
 ### Constraints Are Not Enforced
 Snowflake enforces only `NOT NULL`. PK, UNIQUE and FK constraints are metadata. Declare them with `RELY` for join elimination, and make every load filter out existing rows. See `ddl-patterns.md`, section 0.
 
-### Identifier Case
-Unquoted identifiers are stored in uppercase (`lAC_Actor` → `LAC_ACTOR`). Classify existing objects by kind and structure ([Q1](#q1-identify-model)), not by name casing.
-
-### Unicode Characters in Identifiers
-Snowflake identifiers with non-ASCII characters (ö, å, ä, ü, etc.) MUST be double-quoted. This affects table names, column names, constraint names, and all references in views/functions. Example: `"KS_Kostnadsställe"`, `"FT_OVR_FlexTid_Övertid"`. Unquoted identifiers with these characters cause syntax errors.
-
-**Recommendation:** When designing the model, prefer ASCII-only identifiers if the audience is international. If preserving native-language names is important, consistently double-quote all affected identifiers in DDL and queries.
-
+### Identifier Quoting
+Write every name from the model in double quotes (`"AC_Actor"`, `"AC_NAM_ChangedAt"`), in DDL, queries and loads. The generator does, and it keeps the case and allows national characters (ö, å, ä), which an unquoted identifier does not: unquoted names are read as upper case and may hold only A-Z, digits, `_` and `$`. A quoted name is case sensitive: refer to a generated table as `public."AC_Actor"`, never `AC_Actor` (that is `AC_ACTOR`). The schema is not quoted. A database made without quotes has upper case names; classify its objects by kind and structure ([Q1](#q1-identify-model)). See `references/naming-conventions.md`.
 ### Sequences, Not IDENTITY
 Anchors and nexuses use a sequence default, never `IDENTITY`. Snowflake IDENTITY columns reject explicit values, and loads must insert IDs drawn from the sequence into several tables.
 

@@ -1,20 +1,29 @@
 # Anchor Modeling Naming Conventions (Snowflake)
 
-## Identifier Case
+## Identifier Quoting and Case
 
-Snowflake stores **unquoted** identifiers in UPPERCASE. `AC_Actor` is created as `AC_ACTOR`, and `lAC_Actor` as `LAC_ACTOR`. Consequences:
+**Every name that comes from the model is written inside double quotes**, in the DDL that the generator makes and in the DDL, queries and loads that this skill writes: tables, views, functions, columns, constraints, sequences and aliases.
 
-- Writing PascalCase in DDL is fine and keeps scripts readable, and unquoted references are case-insensitive. But `SHOW TABLES`, `INFORMATION_SCHEMA` and query results return the uppercase form.
-- The perspective prefix is no longer distinguishable by case: `LAC_ACTOR` looks like a construct with mnemonic `LAC`. Never classify objects by name alone. See the classification rules in SKILL.md (Q1).
-- Only quoted identifiers (`"AC_Actor"`) keep their case, and they must then be quoted with exactly that case everywhere. Do not mix quoted and unquoted forms for the same object.
+```sql
+CREATE TABLE IF NOT EXISTS public."FTG_Företag" (
+    "FTG_ID" tinyint not null,
+    "FTG_Företag" varchar(50) not null,
+    constraint "pkFTG_Företag" primary key ("FTG_ID") RELY
+);
+SELECT "FTG_Företag" FROM public."FTG_Företag";
+```
 
-## Unicode Characters Warning
+Why: Snowflake reads an **unquoted** identifier as upper case and accepts only the letters A-Z, digits, underscores and dollar signs in one. So `FTG_Företag` is a syntax error (`ö`), and `AVD_Avdelning` would be created as `AVD_AVDELNING`. A quoted identifier keeps its case and can hold national characters.
 
-Snowflake identifiers containing non-ASCII characters (ö, å, ä, ü, é, etc.) MUST be double-quoted in all DDL and DML. This includes table names, column names, constraint names, sequence names, and all references in views and functions. Unquoted non-ASCII identifiers cause `syntax error ... unexpected` errors.
+Consequences:
 
-**Options:**
-1. **ASCII-only identifiers** (recommended for international teams): transliterate special characters (ö→o, å→a, ä→a). Keeps all identifiers unquoted and case-insensitive.
-2. **Quoted identifiers** (preserves native language): double-quote every identifier with special characters. Quoted identifiers are case-sensitive, so all references must match the exact case used at creation.
+- A quoted identifier is **case sensitive**, and `"AC_Actor"` is not `AC_ACTOR`. A statement that refers to a table of the model has to quote the name exactly as it was created: `SELECT * FROM public."AC_Actor"`. Unquoted `AC_Actor` means `AC_ACTOR`, which does not exist. Copy names from the generated DDL; do not retype them in another case, and do not mix quoted and unquoted forms for one object.
+- `SHOW TABLES`, `INFORMATION_SCHEMA` and query results return the names as they were created, so a perspective's prefix can be told from a mnemonic by case again (`lAC_Actor`). A database made by an earlier version of the generator or by hand without quotes has upper case names, and for that one the classification rules in SKILL.md (Q1) still apply: classify by kind and structure.
+- **The schema is written as it is** (`public`, `knots`), unquoted, so it is read as upper case and matches a schema that was created without quotes. A schema name that has to be quoted (national characters, say) is written quoted by the generator, and the schema then has to be created with exactly that name.
+- The names that the generator itself fixes (`IntegrityViolations`, `ANCHOR_GENERATE`) are not quoted, so they are case insensitive.
+- Switching a database that was made with unquoted names to the quoted form makes a **second set of objects**: `CREATE TABLE IF NOT EXISTS public."AC_Actor"` does not see `AC_ACTOR`. Drop the old objects or rename them (`ALTER TABLE ... RENAME TO "AC_Actor"`) first.
+
+If an audience wants all-ASCII names, transliterate them (ö→o, å→a, ä→a) in the model; they are still quoted.
 
 ## Mnemonics
 

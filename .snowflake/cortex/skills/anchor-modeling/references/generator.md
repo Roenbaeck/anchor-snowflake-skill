@@ -60,6 +60,8 @@ If a step fails, show the user the statement and the error message, and stop; St
 | `API integration ... does not exist` | name it as the user's integration is named, or set it up (README, Installation, step 1) |
 | the script ran but the functions are in another schema | `USE SCHEMA` did not hold for the script; find them with `SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT` and use the qualified name, or install again in one session |
 
+Every name that comes from the model is written in double quotes, so national characters (ö, å, ä) and lower case letters work, and the names are case sensitive: query a generated table as `public."AC_Actor"`. The schema is written as it is. See `naming-conventions.md`. The four objects of the generator itself are not quoted.
+
 The script creates four objects:
 
 | Object | What it is |
@@ -116,7 +118,7 @@ Snowflake does not enforce primary, unique or foreign keys, and the generated ta
 
 ```sql
 SELECT * FROM {schema}.IntegrityViolations;          -- the whole model; no rows is fine
-SELECT * FROM {schema}.ic_{table};                   -- one table, which reads only that table
+SELECT * FROM {schema}."ic_{table}";                   -- one table, which reads only that table
 ```
 
 `{schema}` is the model's default schema (the `encapsulation` setting) for `IntegrityViolations`, and the schema of the table for an `ic_` view. A row has four columns: `Construct` (the table), `Violation` (what is wrong), `ViolationKey` (the key of the rows, an object of column and value) and `Occurrences` (how many rows).
