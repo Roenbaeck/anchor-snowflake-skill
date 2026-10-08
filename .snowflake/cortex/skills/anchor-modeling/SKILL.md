@@ -17,6 +17,7 @@ Reference files. Load each one when a step says so, not all up front:
 - `references/generator.md`: the Anchor generator, a set of Snowflake functions that makes the whole DDL script from the model XML (uni, bi and crt). Load it when generating DDL.
 - `references/model-xml.md`: the model XML that the generator reads, and how to write it. Load it with `generator.md`.
 - `references/semantic-views.md`: semantic views on an Anchor model, including as of a point in time. Load it when the user wants one.
+- `references/metadata.md`: what the Metadata column is for, batch tracking infrastructure, and how to roll back a load. Load it when building a task graph or when the user asks about Metadata.
 
 **Environment:**
 
@@ -56,7 +57,7 @@ Installs, or updates, the Anchor generator (`references/generator.md`) in the us
 Choose the way, in this order (details in `references/generator.md`, Install):
 
 1. **From a Git repository in Snowflake** (A): needs an API integration for GitHub. Check `SHOW API INTEGRATIONS;`. Use the one that allows `https://github.com/Roenbaeck`, else ask the user for its name, or whether they want to set one up (README, Installation, step 1).
-2. **With the Snowflake CLI** (B), if the host has a shell and a connected `snow`: always with `--enable-templating NONE`, or the engine in the script is changed (`&&` becomes `&`) and fails.
+2. **With the Snowflake CLI** (B), if the host has a shell and a connected `snow` or SnowSQL.
 3. **By the user in Snowsight** (C), if neither is possible: give the steps, do not paste the script.
 
 Never read `anchor_generator.sql` into the conversation to send it back as SQL: it is about 450 KB.
@@ -65,7 +66,7 @@ Run the statements in one session. If one fails, show the user the statement and
 
 ### I3: Verify
 
-Read the result of the last statement of the script (it says whether the generator works), and run the three checks under *After installing* in `references/generator.md`. Report the qualified name of `ANCHOR_GENERATE` to the user, and use that name in later steps.
+Run the three checks under *After installing* in `references/generator.md`. Report the qualified name of `ANCHOR_GENERATE` to the user, and use that name in later steps.
 
 ---
 
@@ -312,7 +313,7 @@ Load `references/constructs.md` and explain the requested concept. Use `ANCHOR_E
 
 ## Data Loading Workflow
 
-Load `references/ddl-patterns.md` and `references/naming-conventions.md`.
+Load `references/ddl-patterns.md`, `references/naming-conventions.md` and `references/metadata.md`.
 
 **Always implement loading as a Snowflake task graph (DAG).** This makes the load repeatable, captures the dependency order, and enables parallel execution where the graph allows it.
 
@@ -353,14 +354,14 @@ LOAD_FINAL                     (finalizer: the integrity checks)
 
 **Compute.** Parallel tasks on one warehouse share it, so a graph with many parallel tasks queues unless the warehouse is large enough or multi-cluster. Serverless tasks (`USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE` instead of `WAREHOUSE`) are managed per task. Ask the user which they want; the default is a named warehouse (L3).
 
-**Root task** does no loading work itself (`SELECT 1` or a logging insert). It only anchors the graph.
+**Root task** draws the next batch ID from a sequence, publishes it to `LOAD_BATCH_CURRENT`, and logs the start in `LOAD_BATCH_LOG` (see `references/metadata.md`). It does no loading work itself.
 
 **Initial load / full rebuild** is not part of the graph. If the user wants to start over, provide a separate truncate script: ties → nexus attributes → nexuses → anchor attributes → anchors → knots. Reset the sequences only if the tables are empty. Warn explicitly that it destroys all history, and run it only after the user has confirmed.
 
 **Only the uni-temporal patterns below are written.** For bitemporal and concurrent-reliance-temporal models the graph has the same shape (posits instead of rows), but there are no load statements yet: tell the user.
 ### L2: Load Patterns
 
-Replace `{db}.{sch}` with the fully-qualified schema and `{md}` with the Metadata value for the batch (agree with the user what it identifies, e.g. source system or batch number). Wrap each task body in `BEGIN ... END;`.
+Replace `{db}.{sch}` with the fully-qualified schema. Use the batch tracking pattern from `references/metadata.md` for the Metadata value: every child task reads `{db}.{sch}.LOAD_BATCH_CURRENT` into a local variable `:md` and uses it as the Metadata value on every INSERT. Wrap each task body in `BEGIN ... END;`.
 
 Every table is clustered by the identity of its owner (`ddl-patterns.md`, section 0), so each `INSERT ... SELECT` below ends with an `ORDER BY` on that identity: the rows are written in key order and the micro-partitions start out clustered. Keep the `ORDER BY` in the statements you write for ties, nexus attributes and knotted attributes too.
 
