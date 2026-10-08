@@ -135,7 +135,7 @@ Views that join pieces back into wide rows:
 | `n` | Now | Values as of current_timestamp (view) |
 | `d` | Difference | Every change between two timestamps (table function) |
 
-For querying and semantic models, latest perspectives (`l` prefix) are the starting point.
+For querying, latest perspectives (`l` prefix) are the starting point. For semantic views, including as of a point in time, see `semantic-views.md`.
 
 ## Metadata Column
 

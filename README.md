@@ -23,6 +23,7 @@ The skill lives in `.snowflake/cortex/skills/anchor-modeling/`, where Cortex Cod
 | `references/naming-conventions.md` | Naming rules and Snowflake identifier-case behaviour |
 | `references/generator.md` | The Anchor generator: install, use, errors, limits |
 | `references/model-xml.md` | The model XML that the generator reads, and how to write it |
+| `references/semantic-views.md` | Semantic views on an Anchor model, as of a point in time too |
 | `generator/anchor_generator.sql` | The generator, as one SQL script to run once per account. Built from the [Anchor repository](https://github.com/Roenbaeck/anchor) (`tools/build-snowflake-generator.ps1`); the first lines say from which commit. Do not edit it |
 | `generator/example-model.xml`, `generator/minimal-model.xml` | A model as the Anchor Modeler saves it, and a small one to start from |
 
