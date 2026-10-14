@@ -108,8 +108,9 @@ In order, the templates for the temporalization produce:
 4. Equivalence views for knots and attributes (when the model has equivalence)
 5. Rewinders (the `r` functions, the state of an attribute at a time of change)
 6. Perspectives for anchors, nexuses and ties: latest `l`, point-in-time `p`, now `n` and difference `d`
-7. Integrity checks: a view `ic_{table}` for every table, and `IntegrityViolations` for the whole model (see below)
-8. `COMMENT`s from the descriptions of the model
+7. Natural keys, when the model has keys: for every route, a key view `key_{entity}_{route}`, a point-in-time key `pkey_{entity}_{route}` for a key that can change, and a check `ic_key_{entity}_{route}` (see below)
+8. Integrity checks: a view `ic_{table}` for every table, and `IntegrityViolations` for the whole model (see below)
+9. `COMMENT`s from the descriptions of the model
 
 Tables are `CREATE TABLE IF NOT EXISTS`, so running the script again on a database that has the model adds what is new and changes nothing else. Views and functions are `CREATE OR REPLACE ... COPY GRANTS`, so grants on them survive. Every table has a `CLUSTER BY`, every key is declared `RELY`, and the default for *now* is `sysdate()` (UTC). Every generated identity takes its value from a sequence named `{table}_ID_SEQ` (never `IDENTITY`): knots, anchors, nexuses and, in bi and crt, the posit of every attribute and tie (for example `ST_NAM_Stage_Name_Posit_ID_SEQ`). A load can therefore draw an identity first and insert it explicitly, as the load patterns in `SKILL.md` do.
 
@@ -130,12 +131,39 @@ SELECT * FROM {schema}."ic_{table}";                   -- one table, which reads
 | `duplicate unique key` | the same unique key more than once (for a tie with no identifier, the role is named) |
 | `no row in {table} for {column}` | a foreign key that points at nothing |
 | `restatement` | in a historized attribute or tie that may not store restatements (the `restatable` flag is false), a value that is the same as the one before it in changing time. uni only |
+| `duplicate natural key` | a natural key that more than one identity has (from an `ic_key_` view; see Natural keys) |
+| `more than one natural key` | an identity with more than one natural key, which a route through a tie or nexus that is not functional allows (from an `ic_key_` view) |
 
 Run them after every load. `IntegrityViolations` reads every table, so on a large model prefer the `ic_` view of what was loaded. When a check finds something, show the user the rows (`ViolationKey` tells which) and stop; do not delete rows without asking.
 
 **To see that they work** on a new installation, in a scratch schema: generate a small model, insert one row twice into an anchor table, insert an attribute row for an identity that has no anchor row, and run `IntegrityViolations`. It should name both. The checks join in a way that a `RELY` foreign key cannot remove, but only a test on the account shows that for certain.
 
 In bitemporal and concurrent reliance temporal models, an attribute or tie has a posit table and an annex table, and each has a view (`ic_{name}_Posit`, `ic_{name}_Annex`). The posit and annex keys and the references between them are checked; restatement and overlapping times are not.
+
+## Natural keys
+
+A key in the model (`<key>` elements, see `model-xml.md`) is a route: the values that identify an anchor or nexus, reached from it through its own attributes, its roles and ties. For every route the script has
+
+```sql
+SELECT * FROM {schema}."key_{AN}_{Descriptor}_{route}";             -- the key of every identity, from the latest values
+SELECT * FROM TABLE({schema}."pkey_{AN}_{Descriptor}_{route}"('2026-01-01'::timestamp_ntz));   -- at a time (UTC)
+SELECT * FROM {schema}."ic_key_{AN}_{Descriptor}_{route}";          -- keys of more than one identity, and the reverse
+```
+
+The key view has the identity column of the anchor or nexus, then one column for each value of the key, in the order of the route. A value reached through roles is prefixed by them, such as `wasHeldAt_ST_LOC_Stage_Location` for the location of the stage an event was held at. A value with a checksum, such as a geography, is followed by the checksum, `hash(value)`, and is matched on that; hash the staged value as the type of the attribute (`hash(to_geography(s.location_text))` when the staging table holds text). The point-in-time function exists only for a key that can change, one with a historized attribute or tie on its route. In concurrent reliance temporal models the first column is the positor, and a key is per positor.
+
+To find the identities of the rows in a staging table by a key with several values:
+
+```sql
+SELECT s.*, k."EV_ID"
+FROM {source} s
+LEFT JOIN {schema}."key_EV_Event_1st" k
+  ON  k."EV_DAT_Event_Date" = s.event_date
+  AND k."wasHeldAt_ST_LOC_Checksum" = hash(s.stage_location)
+  AND k."wasPlayed_PR_NAM_Program_Name" = s.program_name;
+```
+
+A row without a match is a new identity. Snowflake does not enforce that a key is unique: when `ic_key_` has rows, a key matches more than one identity, so check it after every load and before trusting a lookup. A route that does not make a key, such as one whose branch ends in a role instead of a value, is not generated; the script has a comment `-- The {route} key of {entity} is not generated: ...` with the reason, and one that is not functional has a `-- Note:` above its view.
 
 ## Errors
 
