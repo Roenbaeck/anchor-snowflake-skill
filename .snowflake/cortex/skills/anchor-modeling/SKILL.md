@@ -400,6 +400,8 @@ SELECT "{AN}_ID", natural_key, {md} FROM {an}_new ORDER BY "{AN}_ID";
 DROP TABLE {an}_new;
 ```
 
+**Keys of several values**: when the model has a key route for the anchor or nexus, the generated key view `{db}.{sch}."key_{AN}_{Descriptor}_{route}"` holds the key of every identity, including keys of several values and keys through ties and nexus roles (see `references/generator.md`, Natural keys). Use it in the `NOT EXISTS` above, and wherever source rows are mapped to IDs below, matching every value of the key; load the anchors that the key reaches through roles and ties first, since the view reads their values. Check `ic_key_{AN}_{Descriptor}_{route}` after the load.
+
 **Static attributes**: insert only for owners that have no row yet. Map source rows to IDs through the identifier attribute.
 
 ```sql
