@@ -412,7 +412,7 @@ SELECT * FROM TABLE({schema}."p{AN}_{Descriptor}"(sysdate()));
 
 ## 9. Difference Perspective (d prefix)
 
-A table function taking `intervalStart` and `intervalEnd`:
+A table function taking `intervalStart` and `intervalEnd`. It shows each change in the interval with the values in effect then, so every historized attribute is joined with the time until which each of its values holds, which is when the next one does:
 
 ```sql
 CREATE OR REPLACE FUNCTION {schema}."d{AN}_{Descriptor}" (
@@ -427,22 +427,44 @@ RETURNS TABLE (
 )
 LANGUAGE SQL
 AS $$
-    -- UNION of one SELECT per historized attribute:
-    SELECT DISTINCT
-        "h{ATR}"."{AN}_{ATR}_ChangedAt" AS inspectedTimepoint,
-        '{ATR}' AS mnemonic,
-        "p{AN}".*
-    FROM
-        {schema}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" "h{ATR}",
-        TABLE({schema}."p{AN}_{Descriptor}"("h{ATR}"."{AN}_{ATR}_ChangedAt")) "p{AN}"
-    WHERE
-        (selection IS NULL OR selection LIKE '%{ATR}%')
-    AND "h{ATR}"."{AN}_{ATR}_ChangedAt" BETWEEN intervalStart AND intervalEnd
-    AND "p{AN}"."{AN}_ID" = "h{ATR}"."{AN}_{ATR}_{AN}_ID"
-    UNION
-    -- ... repeat for each historized attribute ...
+    SELECT
+        timepoints.inspectedTimepoint,
+        timepoints.mnemonic,
+        "{AN}"."{AN}_ID",
+        "{AN}"."Metadata_{AN}",
+        "{ATR}"."{AN}_{ATR}_{AN}_ID",
+        "{ATR}"."Metadata_{AN}_{ATR}",
+        "{ATR}"."{AN}_{ATR}_ChangedAt",
+        "{ATR}"."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}"
+    FROM (
+        -- one SELECT per historized attribute, joined by UNION:
+        SELECT DISTINCT
+            "{AN}_{ATR}_{AN}_ID" AS "{AN}_ID",
+            "{AN}_{ATR}_ChangedAt" AS inspectedTimepoint,
+            '{ATR}' AS mnemonic
+        FROM {schema}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}"
+        WHERE (selection IS NULL OR selection LIKE '%{ATR}%')
+        AND "{AN}_{ATR}_ChangedAt" BETWEEN intervalStart AND intervalEnd
+        -- UNION ... the same for each historized attribute ...
+    ) timepoints
+    JOIN {schema}."{AN}_{Descriptor}" "{AN}"
+        ON "{AN}"."{AN}_ID" = timepoints."{AN}_ID"
+    -- Historized attribute: each value with the time until which it holds
+    LEFT JOIN (
+        SELECT h.*, LEAD(h."{AN}_{ATR}_ChangedAt") OVER (
+            PARTITION BY h."{AN}_{ATR}_{AN}_ID"
+            ORDER BY h."{AN}_{ATR}_ChangedAt"
+        ) AS "until"
+        FROM {schema}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" h
+    ) "{ATR}"
+        ON "{ATR}"."{AN}_{ATR}_{AN}_ID" = "{AN}"."{AN}_ID"
+        AND "{ATR}"."{AN}_{ATR}_ChangedAt" <= timepoints.inspectedTimepoint
+        AND ("{ATR}"."until" IS NULL OR "{ATR}"."until" > timepoints.inspectedTimepoint)
+    -- static and knotted attributes/knots joined exactly as in the latest perspective
 $$;
 ```
+
+Do not build it by calling the point-in-time perspective for each change (`FROM history h, TABLE(p...(h."{AN}_{ATR}_ChangedAt"))`). Snowflake cannot call a SQL function for each row of another table when the function uses its argument in an outer join, a window or a subquery, and the point-in-time perspective does all three. The call fails with "Unsupported subquery type" as soon as there are two changes; empty tables hide this. The same goes for queries: call a point-in-time perspective once for each time.
 
 ## 10. Tie Perspectives
 
