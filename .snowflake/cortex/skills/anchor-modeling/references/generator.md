@@ -114,6 +114,11 @@ In order, the templates for the temporalization produce:
 
 Tables are `CREATE TABLE IF NOT EXISTS`, so running the script again on a database that has the model adds what is new and changes nothing else. Views and functions are `CREATE OR REPLACE ... COPY GRANTS`, so grants on them survive. Every table has a `CLUSTER BY`, every key is declared `RELY`, and the default for *now* is `sysdate()` (UTC). Every generated identity takes its value from a sequence named `{table}_ID_SEQ` (never `IDENTITY`): knots, anchors, nexuses and, in bi and crt, the posit of every attribute and tie (for example `ST_NAM_Stage_Name_Posit_ID_SEQ`). A load can therefore draw an identity first and insert it explicitly, as the load patterns in `SKILL.md` do.
 
+When querying the perspectives:
+- Call a point-in-time or time-traveling function with a constant time. Do not call it once for each row of another table, as in `FROM dates d, TABLE(p...(d.at))`; Snowflake cannot evaluate a function called like that ("Unsupported subquery type"). For every change in an interval, use the difference perspective.
+- In concurrent reliance temporal models, a positor's view shows only if the positor is in the `_Positor` table.
+- An attribute in an encryption group is a `binary` column. Load the value already encrypted, for example with `ENCRYPT`.
+
 ## Integrity checks
 
 Snowflake does not enforce primary, unique or foreign keys, and the generated tables declare every key `RELY`, so the optimizer trusts them. A load that breaks a key gives wrong results, not an error. The generator therefore makes views that find the rows that break what the tables declare:
