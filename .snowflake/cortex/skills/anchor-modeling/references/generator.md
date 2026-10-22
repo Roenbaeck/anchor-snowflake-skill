@@ -117,7 +117,7 @@ Tables are `CREATE TABLE IF NOT EXISTS`, so running the script again on a databa
 When querying the perspectives:
 - Call a point-in-time or time-traveling function with a constant time. Do not call it once for each row of another table, as in `FROM dates d, TABLE(p...(d.at))`; Snowflake cannot evaluate a function called like that ("Unsupported subquery type"). For every change in an interval, use the difference perspective.
 - In concurrent reliance temporal models, a positor's view shows only if the positor is in the `_Positor` table.
-- An attribute in an encryption group is a `binary` column. Load the value already encrypted, for example with `ENCRYPT`.
+- Snowflake implements neither encryption groups nor, in bitemporal and concurrent reliance temporal models, equivalence; the generator ignores them. An attribute in an encryption group keeps its own type and its values are stored as they are loaded, which the script says in a comment above its table. Equivalence works in uni-temporal models.
 
 ## Integrity checks
 
