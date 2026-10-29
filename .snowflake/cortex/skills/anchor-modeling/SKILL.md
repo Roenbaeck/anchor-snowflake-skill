@@ -12,6 +12,7 @@ Anchor Modeling is a database design technique that decomposes a domain into six
 Reference files. Load each one when a step says so, not all up front:
 
 - `references/constructs.md`: Anchor Modeling theory and construct definitions.
+- `references/modeling-practice.md`: how to ask the user about the domain and what to check before presenting a model. Load it at R1, R2, G1, G2 and E2.
 - `references/ddl-patterns.md`: Snowflake DDL templates, perspective templates, integrity checks.
 - `references/naming-conventions.md`: naming rules and identifier-case behaviour.
 - `references/generator.md`: the Anchor generator, a set of Snowflake functions that makes the whole DDL script from the model XML (uni, bi and crt). Load it when generating DDL.
@@ -25,6 +26,8 @@ Reference files. Load each one when a step says so, not all up front:
 - If an `ANCHOR_EXAMPLE.PUBLIC` database exists in the account, it holds a working theatre-domain model you can use as a live reference. Check with `SHOW SCHEMAS IN DATABASE ANCHOR_EXAMPLE` before relying on it. If it is missing, use the examples in the reference files.
 
 **Scope:** the hand-written templates in `references/ddl-patterns.md` cover **uni-temporal** models. The Anchor generator (`references/generator.md`) makes DDL for **uni, bitemporal (bi) and concurrent-reliance-temporal (crt)** models; it is installed once per account. For a bitemporal or concurrent-reliance-temporal request, use the generator if it is installed. If it is not, explain the concepts, say that the generator is needed for them (`generator.md` says how to install it), and ask before improvising DDL.
+
+**Modeling:** a model states what the business means, and a generated model can be valid and still say something else. Whenever you design or change a model (R, G and E steps), follow `references/modeling-practice.md`: settle no question of meaning silently, ask in the user's own words and not in Anchor terms (the person answering may not know them), and show sentences, examples and assumptions for the user to confirm, not only a table of constructs.
 
 ## Intent Detection
 
@@ -83,28 +86,29 @@ Run the three checks under *After installing* in `references/generator.md`. Repo
    - For a database: `SHOW TABLES IN <db>.<schema>`, then `SHOW COLUMNS IN TABLE <table>` for each table. Examine foreign keys, column names, data types, and comments.
    - For staged files: `LIST @<stage>`, then `SELECT * FROM @<stage>/<file> LIMIT 10` to sample data and infer structure.
 3. Build a catalog of entities, their columns, relationships (from FKs or naming patterns), and candidate lookup/reference tables.
+4. Test your guesses against the data, with aggregate queries and not a sample of ten rows (`references/modeling-practice.md`, Asking the data): is each candidate key unique and never empty, is each relationship one-to-many or many-to-many, which columns hold a short stable list of values, which tables show that something changes. Keep the results as evidence.
 
-**⚠️ STOP**: Present the discovered entities and relationships to the user for confirmation before modeling.
+**⚠️ STOP**: Present the discovered entities and relationships, with what the data showed (and the surprises, as questions), to the user for confirmation before modeling.
 
 ### R2: Propose Anchor Model
 
 **Goal:** Map the source structure to Anchor Modeling constructs.
 
-Load `references/constructs.md`.
+Load `references/constructs.md` and `references/modeling-practice.md`.
 
 **Rules for mapping:**
 
 - Each entity with a surrogate or natural key → **Anchor**. Use a 2-letter mnemonic derived from the entity name.
 - **Every anchor MUST have at least one identifier attribute**: a static attribute storing the source natural key (e.g., employee number, project code). Without it, there is no way to map source data to surrogate IDs during loading. Use a KOD (code) or similar mnemonic. Nexuses need one too, holding the source key of the event.
 - Each column on an entity → **Attribute** (3-letter mnemonic). Decide:
-  - Static vs historized: ask the user which properties change over time.
+  - Static vs historized: a snapshot of current values shows nothing about change, so ask the user which properties change over time, in their words (practice file, Questions in plain language).
   - If the column references a small lookup/enum table → **Knot** + knotted attribute.
 - Each foreign key or join table → **Tie**. Determine cardinality from key constraints.
 - Join tables with their own properties or additional FKs → **Nexus** candidate.
 - Small reference/enum tables (< ~50 rows, stable values) → **Knot** (3-letter mnemonic).
 - **Knot vs anchor for code+description pairs:** If a source dimension has both a code and a readable description, and you need both in the model, make it an anchor with a code attribute and a historized description attribute. Only use a knot if a single value column suffices.
 
-Present the proposed model as a table:
+Check the model against the list in the practice file (Check before you present). Present it as the practice file says (Presenting the model): sentences in the user's words, examples with the case the model does not allow, assumptions, open questions with your proposed answers, and then the construct table:
 
 ```
 | Construct | Mnemonic | Descriptor       | Notes                    |
@@ -116,7 +120,7 @@ Present the proposed model as a table:
 | Tie       | —        | AC_part_PR_in    | Many-to-many             |
 ```
 
-**⚠️ STOP**: Get user approval on the proposed model before generating DDL.
+**⚠️ STOP**: Get user approval on the proposed model before generating DDL. The approval is of the sentences, the examples, the assumptions and the answers to the open questions, not only of the table.
 
 ### R3: Generate DDL
 
@@ -128,32 +132,35 @@ Proceed to [Step G3](#g3-generate-ddl) with the approved model.
 
 ### G1: Gather Domain
 
-**Goal:** Understand what the user wants to model.
+**Goal:** Understand what the user wants to model, in their words.
+
+Load `references/modeling-practice.md`.
 
 **Actions:**
 
-1. Ask the user to describe their domain: what are the main things (entities), what properties do they have, how do they relate?
-2. Identify which properties change over time (historized) vs are set once (static).
-3. Identify small, stable value sets that should be knots.
-4. Identify the natural key of each entity and event (becomes the identifier attribute).
+1. Ask the user to describe their domain: what are the main things, what do they know about each, how do they relate? If there is a document, a spreadsheet or a system to look at, use it, and test what you read in it against the data ([R1](#r1-discover-source), step 4).
+2. From what they said, work out what they have not settled: which things have an identity and how two are told apart, which properties change and whose history is wanted, which values come from a short fixed list, how many of one thing relate to how many of another, which relationships are happenings with details of their own, and whether the model must tell what was true from what was known (uni, bi, crt).
+3. Ask about those, as the practice file says: in the user's words and not in Anchor terms, with an example from their domain and your own guess in each question, the costliest first, at most five in a round. Assume the cheap ones and say so.
 
-**⚠️ STOP**: Confirm understanding of the domain before designing.
+**⚠️ STOP**: Confirm the understanding of the domain, as sentences, before designing.
 
 ### G2: Design Model
 
 **Goal:** Assign mnemonics and structure.
 
-Load `references/constructs.md`.
+Load `references/constructs.md` and `references/modeling-practice.md`.
 
 **Actions:**
 
 1. Assign 2-letter mnemonics for anchors and nexuses.
 2. Assign 3-letter mnemonics for attributes and knots.
 3. Design ties with role names that read as a sentence.
-4. Decide historization for each attribute and tie.
-5. Present the model summary table (as in R2).
+4. Decide historization for each attribute and tie, from what the user said; where they did not say, use the cautious default and list it as an assumption.
+5. Write a description for every construct from the confirmed sentence, in the user's words (it becomes the table's `COMMENT`).
+6. Check the model against the list in the practice file (Check before you present), and fix what it finds.
+7. Present the model as the practice file says (Presenting the model): sentences, examples with the case the model does not allow, assumptions, open questions with your proposed answers, then the summary table (as in R2).
 
-**⚠️ STOP**: Get approval on the model design.
+**⚠️ STOP**: Get approval on the model design: the sentences, the examples, the assumptions and the answers, not only the table.
 
 ### G3: Generate DDL
 
@@ -279,7 +286,7 @@ Run the `CREATE OR REPLACE SEMANTIC VIEW`, then check it with a query: `SELECT *
 
 **Goal:** Design the new construct(s) following existing conventions.
 
-Load `references/ddl-patterns.md` and `references/naming-conventions.md`.
+Load `references/ddl-patterns.md`, `references/naming-conventions.md` and `references/modeling-practice.md`. A new construct raises the same questions of meaning as in a new model (whether it is a thing or a property, how many relate, whether it changes), and gets them asked and confirmed the same way, in plain words.
 
 **Rules:**
 

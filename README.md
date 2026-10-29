@@ -19,6 +19,7 @@ The skill lives in `.snowflake/cortex/skills/anchor-modeling/`, where Cortex Cod
 |------|---------|
 | `SKILL.md` | Entry point: intent detection and step-by-step workflows |
 | `references/constructs.md` | Anchor Modeling theory and construct definitions |
+| `references/modeling-practice.md` | How to ask about the domain in plain words, what to check before presenting a model, and how to present it for confirmation |
 | `references/ddl-patterns.md` | Snowflake DDL and perspective templates, integrity checks |
 | `references/naming-conventions.md` | Naming rules and Snowflake identifier-case behaviour |
 | `references/generator.md` | The Anchor generator: install, use, errors, limits |
