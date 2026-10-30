@@ -54,12 +54,26 @@ Two files next to the generator are examples:
 
 The `<metadata>` directly under `<schema>` holds about fifty settings that decide the whole script: the name of the columns (`metadataPrefix`, `changingSuffix`, `identitySuffix`), the naming convention (`naming`), whether there are metadata columns (`metadataUsage`), equivalence (`equivalence`), checksums, the default for *now* (`now`), the data type of time stamps (`chronon`) and whether the model is `uni`, `bi` or `crt` (`temporalization`).
 
-**It has to be complete.** The generator does not fill in defaults for what is missing: a missing setting does not give an error but names such as `GEN_undefined`, and no metadata columns. So:
+**It has to be complete.** The generator does not fill in defaults for what is missing. It checks the model first, and a missing setting is an error that lists the settings that are missing, with the value that the modeler would give each (see *What the generator checks*). So:
 
 - Copy the whole `<metadata>` element from `generator/minimal-model.xml` or `generator/example-model.xml`, and change only the settings the user asks for.
-- After generating, search the script for the text `undefined`. If it is there, the metadata is incomplete; do not run the script.
+- If the generator answers `The model has N problems, so nothing was generated`, correct what it lists and call it again. Nothing from a call that failed is to be run.
+- A generator that was installed before this check existed does not check: it gives names such as `GEN_undefined` for a missing setting. Search its script for the text `undefined`; if it is there, the metadata is incomplete, so do not run the script, and offer to update the generator (`generator.md`).
 - `databaseTarget` is set to `Snowflake` by the generator, whatever the XML says.
 - A temporalization given as the second argument of `ANCHOR_GENERATE` replaces the one in the XML.
+
+## What the generator checks
+
+Before it generates anything, the generator checks the model and stops at the first call that finds a problem, listing all of them with where they are:
+
+- every setting of `<metadata>` is there, flags are `true` or `false`, `naming` is `original` or `improved`, and `temporalization` is `uni`, `bi` or `crt`;
+- knots, anchors and nexuses have a mnemonic, descriptor, identity (and, for a knot, a dataRange), and no two have the same mnemonic (an anchor, nexus or knot do not share one either; the attributes of one anchor or nexus do not either);
+- an attribute has either a `dataRange` or a `knotRange`, never both and never neither, and a `knotRange` names a knot of the model;
+- a role names an anchor, nexus or knot of the model; a nexus has at least one role that is an anchor, and none of its roles is an identifier;
+- a tie has at least two roles that are anchors or nexuses (the same one twice is fine), no two of its roles are the same type with the same role name, and no other tie has the same name;
+- a `<key>` is of an anchor or nexus of the model, and every `<identifier route="...">` is made up by keys of that anchor or nexus.
+
+It does not check the meaning of the model (that is what `modeling-practice.md` is for), the data types, or that an anchor has an attribute that holds its natural key.
 
 ## Settings that users ask about
 
