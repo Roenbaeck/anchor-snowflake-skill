@@ -135,7 +135,11 @@ SELECT * FROM {schema}."ic_{table}";                   -- one table, which reads
 | `duplicate primary key` | the same primary key more than once |
 | `duplicate unique key` | the same unique key more than once (for a tie with no identifier, the role is named) |
 | `no row in {table} for {column}` | a foreign key that points at nothing |
-| `restatement` | in a historized attribute or tie that may not store restatements (the `restatable` flag is false), a value that is the same as the one before it in changing time. uni only |
+| `restatement` | in a historized attribute or tie that may not store restatements (the `restatable` flag is false), a value that is the same as the one before it in changing time (in bitemporal and concurrent reliance temporal models, of what is in effect) |
+| `temporal duplicate` | bitemporal and concurrent reliance temporal: two annex rows for the same entity (the identifiers of a tie), changing time and positing time (and reliability, or positor and assertion), which the assembled view in SQL Server has a unique key against |
+| `more than one posit asserted at a time` | bitemporal: for the same entity (the identifiers of a tie) and changing time, more than one posit asserted at a positing time. A correction retracts what it corrects at its own positing time |
+| `more than one assertion at a time` | concurrent reliance temporal, decisive: a positor has more than one assertion for the same entity and changing time |
+| `assertions that contradict at a time` | concurrent reliance temporal, not decisive: the weights of a positor's assertions for the same entity and changing time add up to more than one (a positive reliability weighs itself, a negative one one plus itself). `ViolationKey` has the weight |
 | `duplicate natural key` | a natural key that more than one identity has (from an `ic_key_` view; see Natural keys) |
 | `more than one natural key` | an identity with more than one natural key, which a route through a tie or nexus that is not functional allows (from an `ic_key_` view) |
 
@@ -143,7 +147,7 @@ Run them after every load. `IntegrityViolations` reads every table, so on a larg
 
 **To see that they work** on a new installation, in a scratch schema: generate a small model, insert one row twice into an anchor table, insert an attribute row for an identity that has no anchor row, and run `IntegrityViolations`. It should name both. The checks join in a way that a `RELY` foreign key cannot remove, but only a test on the account shows that for certain.
 
-In bitemporal and concurrent reliance temporal models, an attribute or tie has a posit table and an annex table, and each has a view (`ic_{name}_Posit`, `ic_{name}_Annex`). The posit and annex keys and the references between them are checked; restatement and overlapping times are not.
+In bitemporal and concurrent reliance temporal models, an attribute or tie has a posit table and an annex table, and each has a view (`ic_{name}_Posit`, `ic_{name}_Annex`). The posit and annex keys and the references between them are checked there. What the two say together, which no key can hold, is checked in a view of its own, `ic_{attribute}` or `ic_{tie}` (temporal duplicates, assertions that overlap or contradict, restatements); `IntegrityViolations` has them all.
 
 ## Natural keys
 
