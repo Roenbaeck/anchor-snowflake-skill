@@ -175,8 +175,9 @@ A row without a match is a new identity. Snowflake does not enforce that a key i
 | Message | Cause |
 |---------|-------|
 | `XML, line N column M: ...` | the text is not well-formed XML (a pasted model cut short, or something else than the XML code) |
-| `The model has no <metadata> element ...` | the XML is not an Anchor model as the modeler saves it; see `model-xml.md` |
+| `The model has no metadata element ...` | the XML is not an Anchor model as the modeler saves it; see `model-xml.md` |
 | `The temporalization has to be 'uni', 'bi' or 'crt', not '...'` | the second argument |
+| `The model has N problems, so nothing was generated:` and a list | the model failed the check (`model-xml.md`, What the generator checks); each line says what and where. Correct the model and call again; do not run anything from a call that failed |
 | `Unknown function` / `Object does not exist` for a function of the generator | not installed in the current schema, or called from a session where it is not visible; qualify the name |
 | a SQL error when running the **generated** script | tell the user which statement failed, with the message; that is a defect in the templates and is reported to the Anchor repository, with the model XML if the user can share it |
 

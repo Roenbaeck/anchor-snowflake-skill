@@ -172,7 +172,7 @@ Load `references/constructs.md` and `references/modeling-practice.md`.
 SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT;
 ```
 
-- **Installed: use it.** Load `references/generator.md` and `references/model-xml.md`. Write the model XML from the approved design (or take the one the user has from the Anchor Modeler), call `ANCHOR_GENERATE`, search the result for the text `undefined` (it means incomplete `<metadata>`; do not run it), and present the script. This is the only way to get bitemporal and concurrent-reliance-temporal models, equivalence and checksums, and it gives the same DDL as the Anchor Modeler.
+- **Installed: use it.** Load `references/generator.md` and `references/model-xml.md`. Write the model XML from the approved design (or take the one the user has from the Anchor Modeler), call `ANCHOR_GENERATE`, and present the script. If it answers `The model has N problems, so nothing was generated`, correct the model as the list says and call it again (a generator installed before that check existed gives names such as `GEN_undefined` for incomplete `<metadata>`: search the result for `undefined`, do not run it, and offer to update the generator). This is the only way to get bitemporal and concurrent-reliance-temporal models, equivalence and checksums, and it gives the same DDL as the Anchor Modeler.
 - **Not installed:** offer to install it yourself ([Step I1](#i1-check-and-choose-a-schema); it takes a few statements and no manual work for the user). If the user declines, or the model is simple and uni-temporal, generate by hand as below.
 
 **By hand.** Load `references/ddl-patterns.md` and `references/naming-conventions.md`, then generate in this order:
