@@ -124,6 +124,19 @@ How a participant takes part in a tie or nexus.
 
 Choose names that read as a sentence: "actor **part** program **in**, **got** rating".
 
+## Design guidelines (the author's)
+
+From the 2010 paper *Anchor Modeling* (§4), in the order that a modeling session meets them. They use the paper's words, *knotted* and *historized*.
+
+1. **Core entities and happenings are anchors (or nexuses).** A happening is a tie only if it has no properties of its own.
+2. **Attributes:** historized if its versions matter, otherwise static; knotted if the values are categories or a small fixed set. The two combine (a knotted historized attribute).
+3. **Ties:** historized if the relationship may change over time, otherwise static; knotted if the relationships belong to categories. The two combine.
+4. **Roles that may be unknown for a while:** use several smaller ties in which every role is known, rather than one large tie with a hole in it (there is no NULL).
+5. **A historized tie should have at most one role outside its identifier.** If it has more, and the roles do not change together, every new version repeats the rest of the identifier. Move the knot roles to an anchor with knotted attributes and tie to that anchor instead: the same for a knotted tie whose knot roles do not change synchronously.
+6. **A knot models a state** only if the knot's values are *mutually exclusive and exhaustive*: exactly one is true at any time (`Not married` and `Married`; `Resigned` and `Active`). That is how something *ends* without a NULL or a delete: a historized attribute or tie only has the start of an interval, so leaving a state is entering another. A knot may never change once loaded (it is a collapsed anchor); if a knot starts to have properties of its own (a fee per professional level), unfold it into an anchor with attributes.
+7. **Evolution is by extension.** A new property, relationship or state is a new table. Do not alter or drop existing tables to make room.
+8. **No NULL, no update.** A property that is unknown has no row. An entity enters the warehouse with only an identity. A reference to something not yet loaded: create the referred anchor from what the record tells you, or add no tie row until the information arrives (a historized tie may hold the likely one and be corrected later).
+
 ## Perspectives
 
 Views that join pieces back into wide rows:

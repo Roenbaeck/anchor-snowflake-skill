@@ -11,7 +11,7 @@ Anchor Modeling is a database design technique that decomposes a domain into six
 
 Reference files. Load each one when a step says so, not all up front:
 
-- `references/constructs.md`: Anchor Modeling theory and construct definitions.
+- `references/constructs.md`: Anchor Modeling theory and construct definitions, and the design guidelines (when to historize, knot, tie, or use a state).
 - `references/modeling-practice.md`: how to ask the user about the domain and what to check before presenting a model. Load it at R1, R2, G1, G2 and E2.
 - `references/ddl-patterns.md`: Snowflake DDL templates, perspective templates, integrity checks.
 - `references/naming-conventions.md`: naming rules and identifier-case behaviour.
@@ -19,11 +19,11 @@ Reference files. Load each one when a step says so, not all up front:
 - `references/model-xml.md`: the model XML that the generator reads, and how to write it. Load it with `generator.md`.
 - `references/semantic-views.md`: semantic views on an Anchor model, including as of a point in time. Load it when the user wants one.
 - `references/metadata.md`: what the Metadata column is for, batch tracking infrastructure, and how to roll back a load. Load it when building a task graph or when the user asks about Metadata.
-- `references/time.md`: the three kinds of time (changing, happening, recording), how to represent a time, where the times of a load come from and what to do when a source has none. Load it at R1, G1, G2, L1 and when a question is about *when* or *as of*.
+- `references/time.md`: the three kinds of time (changing, happening, recording), how to represent a time, where the times of a load come from, corrections, retractions and reliability in bi and crt, and what to do when a source has none. Load it at R1, G1, G2, L1 and when a question is about *when* or *as of*.
 - `references/identity-and-keys.md`: surrogate identities, why not to hash natural keys, changing keys, early and late identity management. Load it at R2, G2 and L1.
 - `references/constraints.md`: rules beyond the keys (a value that must be unique, a combination that must not repeat), which must hold in every time slice, as violation views. Load it when the user states such a rule.
-- `references/performance.md`: why narrow tables are fast and what it depends on, and as-of joins over many dates (the twine). Load it when a query is slow or a load is large.
-- `references/warehouse-practice.md`: where the model fits (landing zone, model, semantic layer; no persisted layers between), loading discipline, and how an agent should answer questions over the model. Load it when asked about layers, marts, or how an agent should query the model.
+- `references/performance.md`: when narrow tables win and when not, why they are fast and what it depends on, and as-of joins over many dates (the twine), temporal dimensions. Load it when a query is slow or a load is large.
+- `references/warehouse-practice.md`: where the model fits (landing zone, model, semantic layer; no persisted layers between), a mapping from Data Vault, loading discipline, and how an agent should answer questions over the model. Load it when asked about layers, marts, or how an agent should query the model.
 
 **Environment:**
 
