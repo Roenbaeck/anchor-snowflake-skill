@@ -1,6 +1,6 @@
 ---
 name: anchor-modeling
-description: "Full-lifecycle Anchor Modeling on Snowflake. Use for **ALL** requests involving Anchor Modeling: reverse-engineering an existing database into an Anchor model, generating Anchor model DDL, loading data into an Anchor model, querying Anchor model databases, extending models with new constructs, building semantic views on an Anchor model, or explaining Anchor model patterns. Triggers: anchor model, anchor modeling, 6NF, sixth normal form, anchor table, historized attribute, knot table, tie table, nexus table, perspective view, temporal model, bitemporal, uni-temporal, reverse engineer to anchor, create anchor model, semantic view on anchor model."
+description: "Full-lifecycle Anchor Modeling on Snowflake. Use for **ALL** requests involving Anchor Modeling: reverse-engineering an existing database into an Anchor model, generating Anchor model DDL, loading data into an Anchor model, querying Anchor model databases, extending models with new constructs, building semantic views on an Anchor model, adding constraints and business rules, advising on time, keys and warehouse layers, or explaining Anchor model patterns. Triggers: anchor model, anchor modeling, 6NF, sixth normal form, anchor table, historized attribute, knot table, tie table, nexus table, perspective view, temporal model, bitemporal, uni-temporal, reverse engineer to anchor, create anchor model, semantic view on anchor model, unique constraint across time, business rule on a historized model, anchor model layers, hash keys versus sequence identity."
 ---
 
 # Anchor Modeling
@@ -19,6 +19,11 @@ Reference files. Load each one when a step says so, not all up front:
 - `references/model-xml.md`: the model XML that the generator reads, and how to write it. Load it with `generator.md`.
 - `references/semantic-views.md`: semantic views on an Anchor model, including as of a point in time. Load it when the user wants one.
 - `references/metadata.md`: what the Metadata column is for, batch tracking infrastructure, and how to roll back a load. Load it when building a task graph or when the user asks about Metadata.
+- `references/time.md`: the three kinds of time (changing, happening, recording), how to represent a time, where the times of a load come from and what to do when a source has none. Load it at R1, G1, G2, L1 and when a question is about *when* or *as of*.
+- `references/identity-and-keys.md`: surrogate identities, why not to hash natural keys, changing keys, early and late identity management. Load it at R2, G2 and L1.
+- `references/constraints.md`: rules beyond the keys (a value that must be unique, a combination that must not repeat), which must hold in every time slice, as violation views. Load it when the user states such a rule.
+- `references/performance.md`: why narrow tables are fast and what it depends on, and as-of joins over many dates (the twine). Load it when a query is slow or a load is large.
+- `references/warehouse-practice.md`: where the model fits (landing zone, model, semantic layer; no persisted layers between), loading discipline, and how an agent should answer questions over the model. Load it when asked about layers, marts, or how an agent should query the model.
 
 **Environment:**
 
@@ -39,6 +44,7 @@ Reference files. Load each one when a step says so, not all up front:
 | EXTEND | "add attribute", "add anchor", "add tie", "add knot", "extend model", "new property" | [Step E1](#e1-identify-target) |
 | LOAD | "load data", "populate", "insert data", "load from source", "fill anchor model" | [Step L1](#l1-plan-the-task-graph) |
 | SEMANTIC VIEW | "semantic view", "semantic model", "Cortex Analyst", "metrics and dimensions on the anchor model" | [Step S1](#s1-choose-what-to-expose) |
+| CONSTRAIN | "unique", "must be unique", "constraint", "business rule", "validate", "must not", "no two" | [Step C1](#c1-state-the-rule) |
 | EXPLAIN | "explain anchor", "what is a knot", "how does", "anchor modeling concept" | [Step X1](#x1-explain) |
 | INSTALL | "install the generator", "set up the anchor generator", "update the generator", or a GENERATE request when the generator is wanted but not installed | [Step I1](#i1-check-and-choose-a-schema) |
 
@@ -86,7 +92,7 @@ Run the three checks under *After installing* in `references/generator.md`. Repo
    - For a database: `SHOW TABLES IN <db>.<schema>`, then `SHOW COLUMNS IN TABLE <table>` for each table. Examine foreign keys, column names, data types, and comments.
    - For staged files: `LIST @<stage>`, then `SELECT * FROM @<stage>/<file> LIMIT 10` to sample data and infer structure.
 3. Build a catalog of entities, their columns, relationships (from FKs or naming patterns), and candidate lookup/reference tables.
-4. Test your guesses against the data, with aggregate queries and not a sample of ten rows (`references/modeling-practice.md`, Asking the data): is each candidate key unique and never empty, is each relationship one-to-many or many-to-many, which columns hold a short stable list of values, which tables show that something changes. Keep the results as evidence.
+. Look at the date and time columns (`references/time.md`): which are happening times (an event's date, to become attributes), which say when a row changed, which only say when it was loaded; at what granularity; in which zone. A source with only a load time cannot show when things changed: say so now.
 
 **⚠️ STOP**: Present the discovered entities and relationships, with what the data showed (and the surprises, as questions), to the user for confirmation before modeling.
 
@@ -134,7 +140,7 @@ Proceed to [Step G3](#g3-generate-ddl) with the approved model.
 
 **Goal:** Understand what the user wants to model, in their words.
 
-Load `references/modeling-practice.md`.
+Load `references/modeling-practice.md`, and `references/time.md` for the questions about history and dates.
 
 **Actions:**
 
@@ -236,6 +242,8 @@ Load `references/naming-conventions.md`.
 
 **Goal:** Help the user query the model.
 
+**Before the query:** define the question (`references/warehouse-practice.md`, *When an agent or a tool queries the model*): as of when, by which definition, counting which identity; and say which of "what was true then" and "what did we know then" the answer is (`references/time.md`). A slow query, or a lookup of what was in effect at many dates: `references/performance.md`.
+
 **Rules:**
 
 - **For current-state queries**: Use latest perspectives (`lXX_...`). These join everything together, and with `RELY` constraints Snowflake skips joins to attributes that are not selected.
@@ -254,7 +262,7 @@ Load `references/semantic-views.md`, which holds the tested pattern and says wha
 
 **Goal:** Know which anchors and attributes, and as of when.
 
-1. Ask which database and schema hold the model, and which anchors (or nexuses) and which of their attributes to expose. Keep it to one subject area.
+1. Ask which database and schema hold the model, and which anchors (or nexuses) and which of their attributes to expose. Keep it to one subject area. For every metric, ask for its **definition** in the user's words (what counts as a customer or an order, as of when, which identity is counted): a semantic view is where an agreed definition is kept once, and two valid definitions are two metrics with their own names (`references/warehouse-practice.md`).
 2. Ask as of when: **now** (the current state), a **fixed** point in time, or **chosen per session** with a session variable (`$pit_timestamp`, set with `SET` by whoever queries: a session that has not set it gets a compilation error, so it does not suit a client that opens its own session). A fixed or current point in time is one per semantic view.
 3. For each anchor, read the column names of its point-in-time function (`SELECT * FROM TABLE({db}.{sch}."p{AN}_{Descriptor}"(SYSDATE())) LIMIT 0`) instead of building them from the naming rules.
 
@@ -267,6 +275,26 @@ For each anchor: one logical table (a `SELECT` over `TABLE("p…"(…))`, or the
 ### S3: Create and Check
 
 Run the `CREATE OR REPLACE SEMANTIC VIEW`, then check it with a query: `SELECT * FROM SEMANTIC_VIEW({view} DIMENSIONS {table}.{dimension} METRICS {table}.{metric});`. If Snowflake rejects the logical table, show the user the message and fall back to the `n` view as the source; do not guess.
+
+---
+
+## Constrain Workflow
+
+### C1: State the Rule
+
+Load `references/constraints.md` and `references/modeling-practice.md`. Ask what the rule means **in time**, in the user's words, with the case that must fail ("Can two stages have the same name at the same time? Can a closed stage give its name to a new one?"), and what should happen when a load breaks it (flag the batch, or stop). Check first that the generated integrity checks (`generator.md`) do not already cover it.
+
+**⚠️ STOP**: Confirm the rule as sentences and the case that must fail.
+
+### C2: Design the Check
+
+Snowflake has no triggers on tables, so the rule is a violation view in the shape of the generated checks (`Construct`, `Violation`, `ViolationKey`, `Occurrences`), kept in its own script next to the model XML, not in the generated one. Use `references/constraints.md` for the pattern, and say which parts of it have been run.
+
+**⚠️ STOP**: Approval of the view.
+
+### C3: Create and Test
+
+Create the view, then try three loads into a scratch schema: one that must pass, one that must be flagged, and one that reuses a value after it stopped being in effect (passes). Add the view to the finalizer's check of the task graph (`references/metadata.md`) so a breaking batch is marked.
 
 ---
 
@@ -310,7 +338,7 @@ Execute the DDL. Recreate affected perspectives with `CREATE OR REPLACE ... COPY
 
 **Goal:** Teach the user about Anchor Modeling concepts.
 
-Load `references/constructs.md` and explain the requested concept. Use `ANCHOR_EXAMPLE.PUBLIC` for concrete examples if it exists, otherwise the examples in the reference files. Key points to cover:
+Load `references/constructs.md` (and `references/time.md` for anything about history, `references/warehouse-practice.md` for where the model fits) and explain the requested concept. Use `ANCHOR_EXAMPLE.PUBLIC` for concrete examples if it exists, otherwise the examples in the reference files. Key points to cover:
 
 - **Why Anchor Modeling**: non-destructive schema evolution, no ALTER TABLE, history built in, narrow tables favor columnar engines like Snowflake.
 - **When to use what**: anchor vs knot, tie vs nexus, static vs historized.
@@ -320,7 +348,7 @@ Load `references/constructs.md` and explain the requested concept. Use `ANCHOR_E
 
 ## Data Loading Workflow
 
-Load `references/ddl-patterns.md`, `references/naming-conventions.md` and `references/metadata.md`.
+Load `references/ddl-patterns.md`, `references/naming-conventions.md`, `references/metadata.md`, `references/time.md` (where the times come from) and `references/identity-and-keys.md` (how source rows find their identities). For large volumes, `references/performance.md`.
 
 **Always implement loading as a Snowflake task graph (DAG).** This makes the load repeatable, captures the dependency order, and enables parallel execution where the graph allows it.
 
@@ -512,10 +540,19 @@ Write every name from the model in double quotes (`"AC_Actor"`, `"AC_NAM_Changed
 Anchors and nexuses use a sequence default, never `IDENTITY`. Snowflake IDENTITY columns reject explicit values, and loads must insert IDs drawn from the sequence into several tables.
 
 ### Time Zones
-Store every `ChangedAt` as `timestamp_ntz(9)` in UTC and use `sysdate()` for "now". Interactive sessions and task sessions can have different `TIMEZONE` settings, so `current_timestamp()` cast to NTZ would give inconsistent results.
+Store every `ChangedAt` as `timestamp_ntz(9)` in UTC and use `sysdate()` for "now". Never local time (daylight saving repeats an hour) and never a time of day alone (`references/time.md`). Interactive sessions and task sessions can have different `TIMEZONE` settings, so `current_timestamp()` cast to NTZ would give inconsistent results.
 
 ### Decimal Format in Source Data
 Source data may use comma as decimal separator (e.g., `"8,000"` for 8.0). Use `TRY_TO_DECIMAL(REPLACE(value, ',', '.'), precision, scale)` when loading numeric attributes from text columns.
+
+### Dates Are Not ChangedAt
+An order date or a birth date is an attribute of the thing (happening time). `ChangedAt` is when a value started to hold (`references/time.md`).
+
+### No Hashed Identities
+Identities are sequence integers. A hash of a natural key that can change becomes another thing, and costs several times the space (`references/identity-and-keys.md`).
+
+### Rules Over Time
+A rule over a historized value has to hold in every time slice. A constraint on a table cannot say that, and Snowflake does not enforce them anyway: use a violation view (`references/constraints.md`).
 
 ---
 
@@ -539,6 +576,7 @@ All role columns and attribute owner columns have `RELY` FK constraints referenc
 - ✋ After R2/G2: Model design approved
 - ✋ After G3: DDL reviewed
 - ✋ After E2: Extension DDL approved
+- ✋ After C1 and C2: the rule, and the view that checks it
 - ✋ After L2: Task graph and load SQL approved
 - ✋ Before any truncate / full rebuild: explicit confirmation
 
