@@ -2,7 +2,7 @@
 
 ## The Idea
 
-Anchor Modeling splits a domain into sixth-normal-form pieces:
+Anchor Modeling splits a domain into sixth-normal-form pieces, except where a relationship must be recorded as a whole (see ties and nexuses below):
 
 - **Things** with identity → their own table (anchor), holding nothing but that identity.
 - **Every property** → its own table (attribute).
@@ -25,7 +25,7 @@ A thing with an identity: a person, actor, stage, program.
 - `identity`: data type of surrogate ID.
 - Generated table: `{mnemonic}_{descriptor}` with `{mnemonic}_ID` and `Metadata_{mnemonic}`.
 - Use a sequence for auto-generated IDs.
-- Give it a static identifier attribute holding the source natural key, so loads can map source rows to surrogate IDs.
+- For recurring loads, define how source rows find the same identity. A static identifier attribute works for one stable value; composite, changing or upstream-resolved keys work too (`identity-and-keys.md`).
 
 **Use when** the thing has a persistent identity and other things relate to it.
 **Don't use** for value lists (that's a knot).
@@ -69,7 +69,7 @@ Generated table: `{mnemonic}_{descriptor}` with `{mnemonic}_ID` and `{mnemonic}_
 
 ### Tie
 
-A relationship between two or more anchors, possibly including knots. Each participant has a role.
+A relationship with at least two anchor or nexus roles, possibly also knot roles. Each participant has a role.
 
 Generated name: `{type}_{role}` for each role, joined by `_`.
 Example: `AC_part_PR_in_RAT_got`.
@@ -89,10 +89,12 @@ The `identifier` flag on roles forms the primary key:
 A knot role as identifier → same anchor pair can relate once per knot value.
 A knot role as non-identifier → value of the relationship.
 
+**Atomic ties:** Several non-identifier roles can belong in one tie if the business requires them to be recorded together. Such a tie can be in fifth rather than sixth normal form. Split the roles into separate ties if they can be independently missing or changing; do not split a relationship that must always be recorded as a whole.
+
 #### Flavors
 
 - **Static tie**: relationship holds once established.
-- **Historized tie**: relationship can begin/end. `ChangedAt` added to PK.
+- **Historized tie**: keep versions of the relationship by changing time. An ending needs a recorded state or other explicit domain fact; the absence of another row does not end it.
 - **Knotted tie**: carries a knot value.
 
 ### Nexus
@@ -101,7 +103,7 @@ An event-like entity with its own identity, roles, and properties.
 
 - Like an anchor: has `{mnemonic}_ID` and can have attributes.
 - Like a tie: has role columns referencing anchors and knots.
-- Roles stored on the nexus table itself (not separate).
+- Required, stable roles are stored together on the nexus table itself. A nexus with multiple such roles is in fifth rather than sixth normal form; separate ties would let them be recorded independently.
 - Roles are never identifiers (nexus ID identifies it).
 - Nexus is immutable once recorded.
 
@@ -109,9 +111,9 @@ Example: Event nexus `EV_Event` with `EV_ID`, `ST_ID_wasHeldAt`, `PR_ID_wasPlaye
 
 **Chronicle**: An attribute with a `chronicle` ordinal places the nexus in time. Every nexus should have at least one.
 
-**Identifier**: Like an anchor, a nexus should have a static attribute holding the source key of the event, so incremental loads can tell which events are already loaded.
+**Matching**: A recurring load needs a repeatable way to recognize the event. Use a static identifier attribute for a stable event key, or a suitable key route or upstream mapping (`identity-and-keys.md`).
 
-**Use nexus when** a relationship is a happening: has its own properties, other things refer to it, or same anchors participate many times.
+**Use a nexus when** a happening has its own identity and its roles must be recorded together and stay fixed. If a participant may be unknown or change independently, represent it in a separate tie to the happening. An anchor with ties also works when the participants need not be recorded as a whole.
 **Use tie when** the relationship is fully described by who takes part.
 
 ### Role
@@ -132,9 +134,9 @@ From the 2010 paper *Anchor Modeling* (§4), in the order that a modeling sessio
 2. **Attributes:** historized if its versions matter, otherwise static; knotted if the values are categories or a small fixed set. The two combine (a knotted historized attribute).
 3. **Ties:** historized if the relationship may change over time, otherwise static; knotted if the relationships belong to categories. The two combine.
 4. **Roles that may be unknown for a while:** use several smaller ties in which every role is known, rather than one large tie with a hole in it (there is no NULL).
-5. **A historized tie should have at most one role outside its identifier.** If it has more, and the roles do not change together, every new version repeats the rest of the identifier. Move the knot roles to an anchor with knotted attributes and tie to that anchor instead: the same for a knotted tie whose knot roles do not change synchronously.
-6. **A knot models a state** only if the knot's values are *mutually exclusive and exhaustive*: exactly one is true at any time (`Not married` and `Married`; `Resigned` and `Active`). That is how something *ends* without a NULL or a delete: a historized attribute or tie only has the start of an interval, so leaving a state is entering another. A knot may never change once loaded (it is a collapsed anchor); if a knot starts to have properties of its own (a fee per professional level), unfold it into an anchor with attributes.
-7. **Evolution is by extension.** A new property, relationship or state is a new table. Do not alter or drop existing tables to make room.
+5. **By default, keep independently changing roles separate.** A historized tie typically has at most one non-identifier role. Keep several together only when a new version must state the entire relationship at once. For independently changing knot roles, consider an anchor with knotted attributes.
+6. **A knot models a state** only if the knot's values are *mutually exclusive and exhaustive*: exactly one applies at any time (`Not married` and `Married`; `Resigned` and `Active`). Leaving one state is entering another. Do not repurpose a stored knot value. If a value needs independent properties (a fee per professional level), model it as an anchor with attributes.
+7. **Evolution is by extension.** A new property or relationship is a new table. A new allowed value in an existing state domain is not a new construct; when the domain allows it, add a knot row without changing the meaning of existing rows.
 8. **No NULL, no update.** A property that is unknown has no row. An entity enters the warehouse with only an identity. A reference to something not yet loaded: create the referred anchor from what the record tells you, or add no tie row until the information arrives (a historized tie may hold the likely one and be corrected later).
 
 ## Perspectives
@@ -143,22 +145,24 @@ Views that join pieces back into wide rows:
 
 | Prefix | Type | Shows |
 |--------|------|-------|
-| `l` | Latest | Most recent value of everything |
+| `l` | Latest | Most recent version in changing-time order, including future-effective values |
 | `p` | Point-in-time | Values as of a given timestamp (table function) |
-| `n` | Now | Values as of current_timestamp (view) |
+| `n` | Now | Values as of the current time (view) |
 | `d` | Difference | Every change between two timestamps (table function) |
 
-For querying, latest perspectives (`l` prefix) are the starting point. For semantic views, including as of a point in time, see `semantic-views.md`.
+For what is in effect now, use `n` or `p(now)` rather than `l`. For what was believed at a past assertion time, inspect the `t` perspective. For semantic views, including as of a point in time, see `semantic-views.md`.
 
 ## Metadata Column
 
-Every table has `Metadata_XX int not null` for tracking source/batch of each row.
+When enabled, `Metadata_…` columns can link rows to the batch that recorded them (`metadata.md`).
 
 ## Temporalization
 
 - **uni** (uni-temporal): changing time only.
-- **crt** (concurrent-reliance-temporal): also records when/by whom/reliability.
-- **bi** (bitemporal): changing time + positing time.
+- **bi** (bitemporal): changing time and assertion (positing) time.
+- **crt** (concurrent-reliance-temporal): changing time plus assertions with positing time, positor, and reliability.
+
+Recording time is separate from positing time (`time.md`).
 
 Constructs are the same in all three; only generated tables/perspectives differ.
 

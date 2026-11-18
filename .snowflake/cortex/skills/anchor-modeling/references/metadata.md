@@ -1,13 +1,13 @@
 # Metadata Column
 
-Every table in an Anchor model has a `Metadata_{mnemonic}` column (`int not null`). It appears on anchors, nexuses, knots, attributes and ties. The column is not part of any key; it is carried through perspectives alongside the data it describes.
+When metadata is enabled, `Metadata_…` columns can link recorded rows to the batch that inserted them. The patterns below assume the model has appropriate Metadata columns.
 
 ## Purpose
 
 The Metadata column connects every row to the **batch** that loaded it: which run of the task graph, when, from which source, and whether it passed integrity checks. This makes it possible to:
 
 - **Trace** any row back to the load that created it.
-- **Roll back** a bad batch by deleting all rows with its Metadata value.
+- **Identify** the rows a bad batch inserted, for recovery after a dependency check.
 - **Audit** what changed between two loads by comparing Metadata values.
 
 ## Batch tracking infrastructure
@@ -17,19 +17,15 @@ Create these objects once, in the same database as the model:
 ```sql
 CREATE SEQUENCE IF NOT EXISTS {db}.{sch}.LOAD_BATCH_SEQ START 1 INCREMENT 1;
 
--- One-row table: the current batch ID, read by every child task.
-CREATE TABLE IF NOT EXISTS {db}.{sch}.LOAD_BATCH_CURRENT (
-    BATCH_ID INT NOT NULL
-);
-
--- Log of all batches, written by the root and updated by the finalizer.
+-- One batch per graph run group, including retries.
 CREATE TABLE IF NOT EXISTS {db}.{sch}.LOAD_BATCH_LOG (
-    BATCH_ID            INT            NOT NULL,
-    STARTED_AT          TIMESTAMP_NTZ  NOT NULL,
-    COMPLETED_AT        TIMESTAMP_NTZ,
-    STATUS              VARCHAR(20),       -- RUNNING → SUCCEEDED | VIOLATIONS
-    INTEGRITY_VIOLATIONS INT,
-    GRAPH_RUN_GROUP_ID  VARCHAR(100)       -- from TASK_HISTORY, backfilled
+    BATCH_ID             INT            NOT NULL,
+    GRAPH_RUN_GROUP_ID   VARCHAR        NOT NULL,
+    STARTED_AT           TIMESTAMP_NTZ  NOT NULL,
+    EXECUTION_STATUS     VARCHAR        NOT NULL,  -- RUNNING, SUCCEEDED, FAILED, etc.
+    INTEGRITY_STATUS     VARCHAR        NOT NULL,  -- PENDING, PASSED, VIOLATIONS, CHECK_FAILED
+    PUBLICATION_STATUS   VARCHAR        NOT NULL,  -- UNPUBLISHED, PUBLISHED, ROLLED_BACK
+    INTEGRITY_VIOLATIONS INT
 );
 ```
 
@@ -37,73 +33,51 @@ CREATE TABLE IF NOT EXISTS {db}.{sch}.LOAD_BATCH_LOG (
 
 ### Root task
 
-The root task draws the next batch ID from the sequence and publishes it so every child task can read it:
+Use `OVERLAP_POLICY = NO_OVERLAP` on the root and serialize other writers to the same target. The root gets the [runtime graph run group ID](https://docs.snowflake.com/en/sql-reference/functions/system_task_runtime_info) and assigns a batch ID once. Keep the same batch ID on a retry of the same graph run group.
 
 ```sql
 -- In LOAD_ROOT:
-LET bid INT := (SELECT {db}.{sch}.LOAD_BATCH_SEQ.nextval);
-DELETE FROM {db}.{sch}.LOAD_BATCH_CURRENT;
-INSERT INTO {db}.{sch}.LOAD_BATCH_CURRENT (BATCH_ID) VALUES (:bid);
-INSERT INTO {db}.{sch}.LOAD_BATCH_LOG (BATCH_ID, STARTED_AT, STATUS)
-VALUES (:bid, SYSDATE(), 'RUNNING');
+LET run_group VARCHAR := (
+    SELECT SYSTEM$TASK_RUNTIME_INFO('CURRENT_TASK_GRAPH_RUN_GROUP_ID')
+);
+INSERT INTO {db}.{sch}.LOAD_BATCH_LOG
+    (BATCH_ID, GRAPH_RUN_GROUP_ID, STARTED_AT, EXECUTION_STATUS, INTEGRITY_STATUS, PUBLICATION_STATUS)
+SELECT {db}.{sch}.LOAD_BATCH_SEQ.nextval, :run_group, SYSDATE(), 'RUNNING', 'PENDING', 'UNPUBLISHED'
+WHERE NOT EXISTS (
+    SELECT 1 FROM {db}.{sch}.LOAD_BATCH_LOG WHERE GRAPH_RUN_GROUP_ID = :run_group
+);
 ```
 
 ### Child tasks
 
-Every child task begins by reading the current batch ID into a local variable and uses it as the Metadata value on every INSERT:
+Every child task resolves its own run group to a batch ID. Fail if there is not exactly one mapping; do not take a fallback ID. Use the same frozen input on retries and verify incomplete steps before continuing.
 
 ```sql
 -- At the top of every child task body:
-LET md INT := (SELECT BATCH_ID FROM {db}.{sch}.LOAD_BATCH_CURRENT);
+LET run_group VARCHAR := (
+    SELECT SYSTEM$TASK_RUNTIME_INFO('CURRENT_TASK_GRAPH_RUN_GROUP_ID')
+);
+LET md INT := (
+    SELECT BATCH_ID FROM {db}.{sch}.LOAD_BATCH_LOG WHERE GRAPH_RUN_GROUP_ID = :run_group
+);
+-- Fail the task if md is NULL before using it.
 
 -- Then in every INSERT:
 INSERT INTO {db}.{sch}."{AN}_{Descriptor}" ("{AN}_ID", "Metadata_{AN}")
 SELECT "{AN}_ID", :md FROM {an}_new ORDER BY "{AN}_ID";
 ```
 
-This is safe because:
+### Finalizer and publication
 
-- `LOAD_BATCH_CURRENT` has exactly one row, written by the root before any child runs.
-- The root task is the predecessor of every first-wave child, so it always completes first.
-- Each child reads the table once and holds the value for its entire body.
-
-### Finalizer
-
-The finalizer runs after all children (including on failure). It records the outcome:
-
-```sql
--- In LOAD_FINAL (FINALIZE = LOAD_ROOT):
-LET md INT := (SELECT BATCH_ID FROM {db}.{sch}.LOAD_BATCH_CURRENT);
-LET violations INT := (SELECT COUNT(*) FROM {db}.{sch}.INTEGRITYVIOLATIONS);
-LET status_val VARCHAR := IFF(:violations = 0, 'SUCCEEDED', 'VIOLATIONS');
-UPDATE {db}.{sch}.LOAD_BATCH_LOG
-SET COMPLETED_AT = SYSDATE(),
-    STATUS = :status_val,
-    INTEGRITY_VIOLATIONS = :violations
-WHERE BATCH_ID = :md;
-```
-
-## Linking to Snowflake task history
-
-Every execution of a task graph gets a `graph_run_group_id` (a UUID) in `INFORMATION_SCHEMA.TASK_HISTORY`. This UUID is shared by all tasks in one run. It can be backfilled into `LOAD_BATCH_LOG` after the run:
-
-```sql
-UPDATE {db}.{sch}.LOAD_BATCH_LOG bl
-SET GRAPH_RUN_GROUP_ID = (
-    SELECT graph_run_group_id
-    FROM TABLE({db}.INFORMATION_SCHEMA.TASK_HISTORY(RESULT_LIMIT => 50))
-    WHERE name = 'LOAD_ROOT' AND scheduled_time >= bl.STARTED_AT
-    ORDER BY scheduled_time
-    LIMIT 1
-)
-WHERE bl.GRAPH_RUN_GROUP_ID IS NULL;
-```
-
-The finalizer itself cannot reliably read `graph_run_group_id` for its own run because `TASK_HISTORY` has a short latency and the root task's row may not be visible yet.
+1. **Integrity:** the finalizer can record the result of `IntegrityViolations` (or equivalent hand-written checks) and all custom rule checks for the candidate version. It runs after other tasks finish or fail, not if the root is skipped. Record `PASSED` only after every check finishes without violations; a failed check is `CHECK_FAILED`. Revalidate the final candidate after a retry.
+2. **Execution:** outside the graph, wait for the definitive result (`EXECUTE TASK … AWAIT` for manual runs, or [`COMPLETE_TASK_GRAPHS`](https://docs.snowflake.com/en/sql-reference/functions/complete_task_graphs) by graph run group ID for scheduled runs). Check that all expected tasks ran successfully, including required children that might have been suspended or skipped. Do not treat missing or delayed history as success or use a prior attempt's status.
+3. **Publication:** keep the candidate out of consumer-facing perspectives until execution and integrity both pass. For example, load and validate an isolated candidate in a work schema and publish only the validated result through a controlled cutover. Otherwise consumers can see a partial load or wrong results under `RELY`. Mark `PUBLISHED` only after the cutover succeeds. A set of tasks does not share one transaction.
 
 ## Rolling back a batch
 
-Because every row carries the batch ID, removing a bad load is a targeted delete:
+Metadata identifies inserted rows; it does not prove that removing them is safe. Stop competing writes and check retained batches for dependencies first. A later batch might reference an identity created in this batch or rely on its key match or restatement decisions. If there are dependencies, plan which downstream work to replay or recover rather than deleting this batch alone. Deleting inserts does not undo changes to existing rows or already published outputs.
+
+After approval and a successful dependency check, use a targeted delete in a DML transaction. For example:
 
 ```sql
 -- Find the batch
@@ -117,12 +91,13 @@ DELETE FROM {db}.{sch}."{NX}_{Descriptor}" WHERE "Metadata_{NX}" = :batch_id;
 -- ... repeat for each table the batch wrote to.
 ```
 
-Delete in reverse dependency order (ties first, knots last) to avoid leaving orphaned foreign key references, even though Snowflake does not enforce them. After deleting, run `IntegrityViolations` to confirm the model is clean.
+Follow the actual model dependencies in reverse, not just the order in the example. Run integrity and rule checks before committing, and roll back the transaction on failure. Keep the recovery isolated from readers until validated.
 
 Mark the batch in the log:
 
 ```sql
-UPDATE {db}.{sch}.LOAD_BATCH_LOG SET STATUS = 'ROLLED_BACK' WHERE BATCH_ID = :batch_id;
+UPDATE {db}.{sch}.LOAD_BATCH_LOG
+SET PUBLICATION_STATUS = 'ROLLED_BACK' WHERE BATCH_ID = :batch_id;
 ```
 
 ## What not to use the Metadata column for

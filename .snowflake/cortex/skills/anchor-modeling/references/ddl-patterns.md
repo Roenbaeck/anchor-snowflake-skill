@@ -4,13 +4,12 @@ Templates for uni-temporal Anchor models on Snowflake. Examples use the theatre 
 
 ## 0. General Rules
 
-### Constraints are declared, not enforced
+### Keys are declared, not enforced on standard tables
 
-Snowflake enforces only `NOT NULL`. `PRIMARY KEY`, `UNIQUE` and `FOREIGN KEY` are metadata. Consequences:
+On the standard tables used here, Snowflake enforces `NOT NULL` and `CHECK`, but `PRIMARY KEY`, `UNIQUE` and `FOREIGN KEY` are metadata. See [Snowflake's constraint overview](https://docs.snowflake.com/en/sql-reference/constraints-overview).
 
 - **Loads must guarantee uniqueness themselves** (see the loading patterns in SKILL.md). Nothing stops a duplicate row.
-- **Declare every PK, UNIQUE and FK constraint with `RELY`.** This tells the optimizer it may trust them, which enables **join elimination**: a perspective query that selects only a few columns skips the LEFT JOINs to the attribute tables it does not need. This is what keeps wide Anchor perspectives cheap.
-- Because the optimizer trusts `RELY` constraints, a load that breaks them can produce wrong query results. Run the duplicate checks in section 11 after loading.
+- The generated DDL and these templates show `RELY` so the optimizer can eliminate eligible joins. Use it only where the data satisfies the constraints. Validate key and custom rule checks in isolation before publication; on unvalidated, consumer-accessible tables, use `NORELY` rather than asking the optimizer to assume integrity.
 
 ### Data types
 
@@ -130,9 +129,9 @@ CREATE TABLE IF NOT EXISTS public."EV_Event" (
 ) CLUSTER BY ("EV_ID");
 ```
 
-> **Why not IDENTITY?** Snowflake IDENTITY columns do not accept explicit values on INSERT. A load stages rows with IDs taken from the sequence (`seq.nextval`) and inserts those same IDs into the nexus and all its attribute tables. A sequence default allows this; IDENTITY does not.
+> **Why a named sequence?** The load must allocate an ID once and reuse it across the nexus and related tables. A named sequence lets it do that using the same allocator as the table default. Snowflake allows explicit inserts into an `IDENTITY` column, but they can collide with values it later generates.
 
-Give every nexus a static **identifier attribute** holding the source key of the event (like anchors). Incremental loads use it to recognise events that are already loaded.
+For recurring loads, define how the same event is found again. A static identifier attribute is one option; see `identity-and-keys.md` for key routes, time-scoped lookup and upstream identity mapping.
 
 ## 4. Attribute Tables
 
@@ -359,7 +358,7 @@ Add column-level comments on knotted and attribute value columns with a column l
 
 ## 7. Point-in-Time Perspective (p prefix)
 
-A table function taking `changingTimepoint timestamp_ntz(9)` (UTC). Same joins as the latest perspective, but each historized attribute is first filtered to `ChangedAt <= changingTimepoint`:
+A table function taking `changingTimepoint timestamp_ntz(9)` (UTC). Same joins as the latest perspective, but each historized attribute is first filtered to `ChangedAt <= changingTimepoint`. This resolves attribute versions; it does not date-filter the anchor's identities:
 
 ```sql
 CREATE OR REPLACE FUNCTION {schema}."p{AN}_{Descriptor}" (
@@ -484,7 +483,7 @@ Join knot roles to their knot tables to expose readable values, as in attribute 
 
 ## 11. Integrity Checks
 
-Constraints are not enforced, so verify after every load. Each query should return no rows.
+Keys are not enforced on standard tables, so validate before publication. Each query should return no rows.
 
 **A model made by the generator has these checks as views**, including the ones for restatement and, in bitemporal and concurrent reliance temporal models, for posits and annexes and for assertions that overlap or contradict: `SELECT * FROM {schema}.IntegrityViolations;` (`references/generator.md`, *Integrity checks*). The queries below are for a model written by hand:
 
