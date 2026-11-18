@@ -1,0 +1,57 @@
+# Time
+
+Load this when the user talks about history, dates, "as of", "at the time", corrections or time zones (G1, G2, R1), when you plan where the timestamps of a load come from (L1), and when a question asks what was true or known at some time (Q2). The practices are the author's, from his writing on time in databases (*Sources* at the end). Figures from them were measured on SQL Server, on one data set: they show the kind of effect to look for, not what the user's database will do.
+
+## Three kinds of time, and where each goes
+
+| Kind | Means | Where it lives | Example |
+|---|---|---|---|
+| **Changing time** (what others call valid, effective or application time) | since when a value or relationship holds in the world | `ChangedAt` of a historized attribute or tie | the name has been *Ann Lee* since 2020-03-01 |
+| **Happening time** | when an event took place | an **ordinary attribute of the event**, static or historized; never `ChangedAt` | a performance's date, a person's birth date, an order's delivery date |
+| **Recording time** (transaction or positing time) | when the database learned it | metadata (the `Metadata_` reference; in bi and crt the posit's `PositedAt`) | loaded by job 17 on 2026-11-18 at 03:00 |
+
+- **A column that holds a date is not automatically one of them.** An order date, a birth date and a delivery date are happening times: model each as an attribute. Do not put them in `ChangedAt`, and do not ask the user to "choose a temporal type" for them. If the order date itself gets corrected, that is a change of the attribute's value, and the attribute may be historized like any other.
+- **Changing time is one column, the start of an interval.** The next row for the same identity closes the previous one, so the interval is open until another row arrives. Questions about where intervals begin and end need more than one row; the usual question, "what was valid at time T", needs only the latest row on or before T (the point-in-time perspective).
+- **Keep the timelines apart.** Appearance time (changing) and assertion time (positing) are orthogonal: either can change without the other. Never store both in one column, and never let one stand in for the other. bi and crt give each its own column; do not merge them in views or loads.
+- **Recording time may be several times**: data that passed through systems was recorded once in each. Metadata can hold an array of them (source system, who entered it, when it was loaded); `metadata.md` has the batch side.
+
+## How to represent a time
+
+1. **UTC, ISO 8601, a total order.** Store times that order things in UTC. Never local time (daylight saving makes an hour happen twice, so two different moments get the same value), and never a time of day alone. Convert at the edge: say which zone a source uses and convert when loading; convert again for display. In Snowflake use `SYSDATE()` for *now*: it is UTC, whatever the session's `TIMEZONE` (`CURRENT_TIMESTAMP()` cast to NTZ is the session's local time, and an interactive session and a task can differ).
+2. **Precision finer than the shortest gap between two events of one identity.** A coarse type can make two events one key (SQL Server `datetime` rounds to about 3 ms; Snowflake's `TIMESTAMP_NTZ(9)` does not). Where the source is coarser (only a date), a smaller type is cheaper in every key and join: the author's example is `date` at 3 bytes against `datetime2(7)` at 8. So ask what granularity the events really have, and set the type of `timeRange` (and of `chronon`, `positingRange`) to match, for example `TIMESTAMP_NTZ(9)` as generated or `DATE` for day-level history; do not take the default blindly.
+3. **Special points are not all NULL.** There is no NULL in an Anchor model. *Unknown* is the absence of a row. *Ended* is a retraction in bi and crt, and in uni a deletion made by the load (below), or a value in a knot that means "none" when the user wants the ending kept as information. A time that is not known is not invented: say so, and keep the load time as the recording time only. If the model needs a beginning or end of time, give each its own agreed value (the generator's `EOT` in crt is one) and never use NULL for them.
+4. **Choose the least temporality that answers the questions.** The author counts the cases a design has to consider at about 4 without history, 18 with versions (uni), 162 with corrections (bi) and 810 with several asserters (crt). History is cheap; corrections are the big jump. So: uni by default; bi only if reports must reproduce a past state *after* corrections arrived; crt only if sources or people disagree and each version is to be kept. The generated triggers hold the rules, so the user does not see the complexity: another reason not to hand-write them.
+
+## Where the times of a load come from
+
+Ask, for every timestamp column of a source: what does it mean (a change, a load, an extract), at what granularity (second, day), in which zone, and can the row be corrected later. A source rarely says.
+
+- **The source gives change times:** use them as `ChangedAt`. Rows that arrive late or out of order are loaded with their own change time anyway: changing time puts the changes in their order, recording time records the order they arrived in. This is what makes loads idempotent and replayable.
+- **The source gives none (snapshots only):** `ChangedAt` is the load time, a *proxy*. Say what error that brings: a change is placed as late as the interval between loads. The author's rule of thumb is that a proxy for assertion time may be off by about an hour, and one for appearance time by days. Never present a proxy as the real time; size the load interval to the error that the user accepts.
+- **The ABA problem.** A snapshot cannot tell *A, then B, then A again* from *A all the time* when both happen between two loads: it sees only the ends. If the user needs those changes, ask for change timestamps, delta files or an audit log from the source. Nothing in the model can recover them.
+- **A value that disappears** from the source is probably a deletion, not an unknown: model it as a retraction (bi, crt) or a deletion made by the load (uni), after asking.
+- **A row that repeats a key and a time** may be a correction, the next step of a sequence, or another thing: ask which, and for the granularity of the timestamp, before choosing the key.
+
+## Corrections, retractions and reliability (bi and crt)
+
+The author's talks on bitemporal and concurrent-reliance-temporal data (*Back to the Moment*, *Posits and Assertions*) add two ideas to the three kinds above. Use them to explain, and to check loads.
+
+- **Four times of one statement.** *Happening* (the lunch is on Friday), *changing* (the value holds since then), *positing* (when someone said it: "on Monday Archie said Friday") and *recording* (when the database stored it). The first two are data; positing is `PositedAt`; recording is metadata. **Evolution** is a fifth thing, outside all of them: a construct that nobody foresaw (the packaging step of a campaign plan) is added to the model as a new table, and it is not an error in the data.
+- **A statement is an assertion**: who says it (the *positor*), how much they trust it (*reliability*, from -1, certainly not so, through 0, nothing is claimed, to 1, certainly so), and when. In bi there is one implicit positor and the reliability is only *shown* (1) or *retracted* (0). In crt each positor has their own. Several positors may disagree about the same thing without conflict.
+- **Never update or delete to correct.** A **retraction** is the same statement asserted again, later, at reliability 0. A **correction** is a retraction of the old value plus an assertion of the new one: the author's golf deck loads the pair (old at 0, new at 1) at the same posit moment, and restating something that is already asserted changes nothing. Both versions stay queryable: "what was true", and "what did we believe on that day".
+- **One reliability per positor and posit moment.** Two different reliabilities for the same posit by the same positor at the same time contradict each other. Snowflake has no triggers to reject them, so a load must not produce them, and the integrity checks of the generated model look for them.
+- **Uncertain identity: keep the candidates.** When it is not known whether two records are the same thing, do not merge or guess. Tie the record to each candidate with a reliability (early: 0.7 to one and 0.3 to the other as the information arrives; late: 0.5 to each when the data cannot tell), and correct later by asserting 1 and 0. The reliabilities of the ties still add up to the number of real relationships, so a count weights by reliability, not by rows. If nothing in the data can decide, ask the source or a person.
+- **Unknown versus a value of "Unknown".** Where the business acts on not knowing (an order whose delivery date is open), give the knot an explicit value for it; where nobody does, leave the row out. The author's 2007 rule: an attribute has a row only when the value is known.
+
+## Deleting a value in uni
+
+A historized attribute keeps what it was; a source that stops sending a value says nothing about when it ended. Snowflake has no triggers on tables, so a model's latest view cannot take a deletion as an update, and a null in a load is not a deletion. When the user needs a value to end: in bi and crt, load a retraction (an annex row with reliability 0); in uni, the load deletes the rows (it moves them to a deletion table of its own if the user wants an audit of deletions, with the time of the deletion) and says so in the batch log. Ask first whether a value that disappears is a deletion or an unknown (see above), and do not delete without asking. For the history of corrections, use bi or crt.
+
+## Asking what was in effect
+
+- "What was true then" is changing time; "what did we know then" is recording time. If the user asks the second kind, the model needs bi or crt (`modeling-practice.md`, *Questions in plain language*).
+- A lookup of the row in effect is needed twice in bi: the latest assertion, then the latest appearance among those. The lookup is a window function or a `QUALIFY ROW_NUMBER()` in Snowflake, which the generated perspectives already do. For as-of joins over many reference points see `performance.md`.
+
+## Sources
+
+Posts at https://www.anchormodeling.com/ by Lars Rönnbäck: *Time in Databases* (`/time-in-databases/`), *Three Concepts of Time in Anchor Modeling* (2009 note, `/three-concepts-of-time-in-anchor-modeling/`), *Time is both one and many*, *Temporal Complexity*, *Information in Effect and Performance*, *The ABA Problem*, *Poor Man's Auditability*, *A Lack of Context*.

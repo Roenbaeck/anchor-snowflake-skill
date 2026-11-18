@@ -18,13 +18,18 @@ The skill lives in `.snowflake/cortex/skills/anchor-modeling/`, where Cortex Cod
 | File | Purpose |
 |------|---------|
 | `SKILL.md` | Entry point: intent detection and step-by-step workflows |
-| `references/constructs.md` | Anchor Modeling theory and construct definitions |
+| `references/constructs.md` | Anchor Modeling theory, construct definitions and design guidelines |
 | `references/modeling-practice.md` | How to ask about the domain in plain words, what to check before presenting a model, and how to present it for confirmation |
 | `references/ddl-patterns.md` | Snowflake DDL and perspective templates, integrity checks |
 | `references/naming-conventions.md` | Naming rules and Snowflake identifier-case behaviour |
 | `references/generator.md` | The Anchor generator: install, use, errors, limits |
 | `references/model-xml.md` | The model XML that the generator reads, and how to write it |
 | `references/semantic-views.md` | Semantic views on an Anchor model, as of a point in time too |
+| `references/time.md` | Changing, happening and recording time; UTC and precision; where the times of a load come from; corrections, retractions and reliability |
+| `references/identity-and-keys.md` | Sequence identities, why not to hash natural keys, changing keys, early and late identity management |
+| `references/constraints.md` | Rules beyond the keys, which must hold in every time slice, as violation views |
+| `references/performance.md` | When narrow tables win, join elimination, as-of joins over many dates (the twine), temporal dimensions |
+| `references/warehouse-practice.md` | Where the model fits (no persisted layers between landing zone and model), coming from Data Vault, loading discipline, agents querying it |
 | `generator/anchor_generator.sql` | The generator, as one SQL script to run once per account. Built from the [Anchor repository](https://github.com/Roenbaeck/anchor) (`tools/build-snowflake-generator.ps1`); the first lines say from which commit. Do not edit it |
 | `generator/example-model.xml`, `generator/minimal-model.xml` | A model as the Anchor Modeler saves it, and a small one to start from |
 

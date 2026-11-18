@@ -38,6 +38,8 @@ Ask these in the user's words. Each has a guess of your own in it, so that a pla
 | Relationship over time | "Does the link itself begin and end, like an actor leaving a program? Do you need to know who it linked before?" | whether the relationship keeps its history |
 | A happening | "Is a *performance* something that happened at a time, with details of its own and several parties? Is it ever corrected afterwards?" | thing, relationship, or happening |
 | A fixed list | "Is *gender* always one of a short list? Who may add a value? Does a value have a longer text besides its code?" | list of values, or a thing with a code and a description |
+| A date | "Is the *order date* the day the order was placed, the day it was entered in the system, or the day it last changed? If it is corrected, do you need the old date?" | happening time (an attribute of the thing), recording time (metadata) or changing time (`ChangedAt`): `time.md` |
+| Where the times come from | "Does the source say when each row changed, or only when you received it? How exact is the time: to the second, or only the day? In which time zone?" | real change times or a proxy, the precision of the time type, the zone to convert from: `time.md` |
 | Missing values | "Is a *phone number* always known? If it is not, is the *customer* still a valid customer?" | whether absence is normal (it is, in this model: no row) |
 | Mistakes and endings | "When a value was wrong, do you overwrite it or keep the wrong one marked as wrong? When something ends, does it disappear?" | corrections and retractions, deletability |
 | What was true or what we knew | "Do you ever need to reproduce a report exactly as it looked on a past date, although corrections have come in since? Do sources or people disagree about the same fact, so that you want to keep each version?" | bitemporal, concurrent-reliance-temporal, or uni (neither: the default) |
@@ -96,6 +98,7 @@ Go through this list on your own model, then fix a point or put it in the assump
 
 **Time**
 - The temporalization was asked about or defaulted to uni, and the assumptions say which.
+- The date of an event is an attribute of the event, not `ChangedAt`; the time types are as fine as the source and no coarser than the gaps between events; the zone of every source is known and converted to UTC (`time.md`).
 
 **Names and meaning**
 - Every construct has a description in the user's words.
