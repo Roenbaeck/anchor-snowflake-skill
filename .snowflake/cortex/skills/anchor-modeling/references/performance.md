@@ -12,19 +12,29 @@ The author's own experiment (288 tests, SQL Server 2008) compared an anchor data
 
 ## Why narrow tables can be fast on Snowflake, and what it depends on
 
-- **Join elimination.** A query that names a few attributes of an anchor needs only those attribute tables: the optimizer drops the left joins to the others. It works only when **primary and foreign keys are declared** and the query is written so that the join can be proved harmless (a left join from the anchor to the attribute on its key). The generated tables declare every key `RELY` for exactly this (`SKILL.md`, *Constraints Are Not Enforced*), so the optimizer trusts them: a load that breaks a key then gives wrong results, not an error, and the integrity checks matter (`generator.md`). Look at the **query profile** after rewriting a query: a rewrite that looks cleverer can lose the elimination.
+- **Join elimination.** The optimizer can skip joins when it can prove they do not affect the result. The generated DDL uses `RELY` to let Snowflake trust declared keys. Validate the candidate before consumers can query it: an invalid key can produce a wrong result rather than an error (`metadata.md`). Check the query profile after a rewrite.
 - **Query the latest, now and point-in-time perspectives** and name only the columns needed. A `SELECT *` over a perspective reads every attribute table it joins.
 - **Latest versions** are found with a `MAX` subselect or `QUALIFY ROW_NUMBER()`; the generated perspectives already do. The author's measurements of SQL Server's variants (`OUTER APPLY`, `TOP 1`, `ROW_NUMBER` with a redundant `GROUP BY`) do not carry over: do not copy them, test what the profile shows.
 - **No indexes to design.** The author's advice on clustered keys (owner ascending, time descending) and partitioning is for SQL Server. Snowflake keeps micro-partitions itself; a clustering key on a very large attribute or tie table is something to measure, not a default.
 - **Bulk loading:** load files with `COPY INTO` from a stage and set-based inserts that filter what exists, not row by row (`SKILL.md`, *Data Loading Workflow*). The author's experience on SQL Server was that generated bulk packages were "magnitudes faster" than triggers on the latest views (no figures).
-- **Do not call a point-in-time function once for each row of another table** (`FROM t, TABLE(p...(t.at))`): Snowflake cannot evaluate it. For many reference times use the twine below.
+- **Do not call a point-in-time function once for each row of another table** (`FROM t, TABLE(p...(t.at))`): Snowflake cannot evaluate the generated function this way. For many reference times, try `ASOF JOIN` or a twine.
 
 ## As-of joins: many reference times against a long history
 
 *For every row of a table, what was the value in effect at that row's time?* Two situations, and the technique differs.
 
 - **The time is a constant** ("as of 2021-06-30"): use the point-in-time perspective of each table, then join as usual. For an outer join, say *why* a value is missing instead of showing a bare null: no history at all for the identity, or history that starts only after the time asked about.
-- **The time comes from another table** (a purchase date for each purchase): this is a *temporal dependent join*. The direct way derives the end of each interval (`LEAD(valid_from, 1, end_of_time) OVER (PARTITION BY id ORDER BY valid_from)`) and joins on `valid_from <= t AND valid_to > t`; or `QUALIFY ROW_NUMBER() ... ORDER BY h.t DESC` after an inequality join. Both are correct and the first things to try. Optimizers plan inequality joins poorly, and a join that multiplies rows before it picks one is costly on large inputs.
+- **The time comes from another table** (a purchase date for each purchase): this is a *temporal dependent join*. For a single resolved history, start with Snowflake's native [`ASOF JOIN`](https://docs.snowflake.com/en/sql-reference/constructs/asof-join), which retains each driving row and finds the closest history row at or before it:
+
+  ```sql
+  SELECT r.id, r.t, h.v
+  FROM r
+  ASOF JOIN h
+    MATCH_CONDITION (r.t >= h.t)
+    ON r.id = h.id;
+  ```
+
+  Validate one history row per `(id, t)`; Snowflake can choose nondeterministically between tied matches. For bi or crt, resolve the assertion cutoff and positor before applying this single-history example; do not use raw posits and annexes as `h`. For explicit interval boundaries or several histories, compare an interval join or the twine below and profile on the user's data. The `ASOF JOIN` example uses documented syntax and was not benchmarked here.
 
 **The twine** replaces the inequality join with one ordered pass over the history rows and the reference rows together: tag each row with the timeline it came from, put both on one line sorted by (identity, time), and let a window function carry the latest history time forward to each reference row. No end dates are needed, which suits insert-only warehouses. The author reports a query that was cancelled after four hours that ran in seconds as a twine (SQL Server).
 

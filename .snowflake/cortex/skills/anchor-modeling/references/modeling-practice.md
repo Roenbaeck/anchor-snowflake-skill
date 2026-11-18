@@ -19,7 +19,7 @@ A model is a statement of what the business means. The DDL is the easy part; the
 | How to tell two of a thing apart (its natural key), and whether that is unique and stable | High: loads map source rows to identities through it; a wrong key merges or splits things | Ask, and check it against the data |
 | How many of one thing can relate to how many of another, at the same time (the key of a relationship) | High: tightening later loses nothing, loosening needs a migration | Ask with an example |
 | Whether a relationship is a happening with its own details and date | High | Ask |
-| Whether the model must tell *what was true* from *what we knew* or from *who said it* (uni, bi or crt) | High: it changes every table | Ask in plain words, default uni |
+| Whether the model must distinguish *what was in effect*, *who believed what and when*, or *what the warehouse had received* | High: independent timelines may be needed | Ask in plain words; default uni when only changing time is needed |
 | Which properties change and need their history kept | Medium: history that was not kept cannot be recovered; adding it later is a migration | Ask for the ones that are not obvious; assume for the rest |
 | A short list of values or a free property | Medium | Decide from the data, confirm |
 | Mnemonics, descriptors, schema names, data types | Low | Assume, show them |
@@ -38,11 +38,11 @@ Ask these in the user's words. Each has a guess of your own in it, so that a pla
 | Relationship over time | "Does the link itself begin and end, like an actor leaving a program? Do you need to know who it linked before?" | whether the relationship keeps its history |
 | A happening | "Is a *performance* something that happened at a time, with details of its own and several parties? Is it ever corrected afterwards?" | thing, relationship, or happening |
 | A fixed list | "Is *gender* always one of a short list? Who may add a value? Does a value have a longer text besides its code?" | list of values, or a thing with a code and a description |
-| A date | "Is the *order date* the day the order was placed, the day it was entered in the system, or the day it last changed? If it is corrected, do you need the old date?" | happening time (an attribute of the thing), recording time (metadata) or changing time (`ChangedAt`): `time.md` |
+| A date | "Is the *order date* the day the order was placed, the day someone stated that date, the day it was stored, or when the value took effect? If corrected, do you need the old date?" | happening, assertion, recording or changing time (`time.md`) |
 | Where the times come from | "Does the source say when each row changed, or only when you received it? How exact is the time: to the second, or only the day? In which time zone?" | real change times or a proxy, the precision of the time type, the zone to convert from: `time.md` |
 | Missing values | "Is a *phone number* always known? If it is not, is the *customer* still a valid customer?" | whether absence is normal (it is, in this model: no row) |
 | Mistakes and endings | "When a value was wrong, do you overwrite it or keep the wrong one marked as wrong? When something ends, does it disappear?" | corrections and retractions, deletability |
-| What was true or what we knew | "Do you ever need to reproduce a report exactly as it looked on a past date, although corrections have come in since? Do sources or people disagree about the same fact, so that you want to keep each version?" | bitemporal, concurrent-reliance-temporal, or uni (neither: the default) |
+| What was true, believed, or available | "If a correction was made Monday but reached us Tuesday, should a report for Monday include it? Can two sources disagree about the same fact?" | whether to keep assertion and recording time separately; whether a positor is needed (`time.md`) |
 
 ## Presenting the model
 
@@ -81,19 +81,19 @@ Report evidence in a sentence: "In 12,431 rows `order_no` is unique and never em
 Go through this list on your own model, then fix a point or put it in the assumptions.
 
 **Things and keys**
-- Every thing has a property that holds its natural key, and you know whether it is unique and stable.
+- Every recurring load has a repeatable identity match. Confirm its values or route, source scope, whether it can change or be reused, and what to do with no match or an ambiguous one. A static identifier attribute is one option, not mandatory.
 - Nothing is a thing in its own right that has no identity and that nothing refers to: that is a property.
 - No property is hiding a thing: a "property" with details of its own, or one that many things share (a delivery address), is probably a thing.
 
 **Properties**
-- Everything the user said can change keeps its history; keys and birth-like facts are static.
+- Keep the required history, including for changing keys and for time-valued properties that can be corrected.
 - No property holds a list (several values in one, or repeating columns): make it a relationship.
 - A list of values is only a short, closed, stable list with one value column; a code that has a description is a thing (see `constructs.md`, Knot).
 - Each property sits on what it describes (the price on the ticket, not on the performance).
 
 **Relationships**
 - Each relationship reads as a sentence with its roles, and the roles that make up its key match the answers about how many.
-- A happening with details of its own has a date and a key of its own.
+- A happening with its own identity has an explicit way to be placed in time and matched in a repeated load. Use a nexus for its required, stable participants; model optional or independently changing participants in separate ties.
 - No property holds another thing's key.
 
 **Time**
@@ -112,6 +112,6 @@ Say so, use the cautious default, and record it as an assumption "to be confirme
 - **How many:** allow the larger number (many-to-many). Tightening later loses nothing; loosening needs a migration.
 - **Change:** keep the history. History that was not kept cannot be recovered.
 - **Time:** uni-temporal.
-- **A key:** do not invent one from a row number or a surrogate. A thing without a natural key cannot be loaded twice without duplicating it; ask who knows how to tell two apart.
+- **A key:** do not invent a source match from a row number or a warehouse surrogate. If no stable value, key route or trusted upstream mapping can tell two instances apart, stop before automating repeated loads and ask who can resolve them.
 
 If the user says "just generate it", do, but put the assumption list at the top of what you present. Assumptions are never left out.

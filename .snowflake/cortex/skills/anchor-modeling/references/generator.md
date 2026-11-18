@@ -143,7 +143,7 @@ SELECT * FROM {schema}."ic_{table}";                   -- one table, which reads
 | `duplicate natural key` | a natural key that more than one identity has (from an `ic_key_` view; see Natural keys) |
 | `more than one natural key` | an identity with more than one natural key, which a route through a tie or nexus that is not functional allows (from an `ic_key_` view) |
 
-Run them after every load. `IntegrityViolations` reads every table, so on a large model prefer the `ic_` view of what was loaded. When a check finds something, show the user the rows (`ViolationKey` tells which) and stop; do not delete rows without asking.
+Run the relevant checks before publication, including custom rules and affected dependencies (`metadata.md`). `IntegrityViolations` reads every table; on large models select the checks that cover everything the load can affect. Show violations (`ViolationKey` tells which), block publication, and do not delete rows without approval.
 
 **To see that they work** on a new installation, in a scratch schema: generate a small model, insert one row twice into an anchor table, insert an attribute row for an identity that has no anchor row, and run `IntegrityViolations`. It should name both. The checks join in a way that a `RELY` foreign key cannot remove, but only a test on the account shows that for certain.
 
@@ -159,7 +159,7 @@ SELECT * FROM TABLE({schema}."pkey_{AN}_{Descriptor}_{route}"('2026-01-01'::time
 SELECT * FROM {schema}."ic_key_{AN}_{Descriptor}_{route}";          -- keys of more than one identity, and the reverse
 ```
 
-The key view has the identity column of the anchor or nexus, then one column for each value of the key, in the order of the route. A value reached through roles is prefixed by them, such as `wasHeldAt_ST_LOC_Stage_Location` for the location of the stage an event was held at. A value with a checksum, such as a geography, is followed by the checksum, `hash(value)`, and is matched on that; hash the staged value as the type of the attribute (`hash(to_geography(s.location_text))` when the staging table holds text). The point-in-time function exists only for a key that can change, one with a historized attribute or tie on its route. In concurrent reliance temporal models the first column is the positor, and a key is per positor.
+The key view has the identity column of the anchor or nexus, then one column for each value of the key, in the order of the route. A value reached through roles is prefixed by them, such as `wasHeldAt_ST_LOC_Stage_Location` for the location of the stage an event was held at. A value with a checksum, such as a geography, is followed by the checksum, `hash(value)`, and is matched on that; hash the staged value as the type of the attribute (`hash(to_geography(s.location_text))` when the staging table holds text). For a historized route, use the point-in-time key when the match needs a changing-time cutoff. `ic_key_` does not validate uniqueness over every historical slice. In concurrent reliance temporal models the first column is the positor, and a key is per positor.
 
 To find the identities of the rows in a staging table by a key with several values:
 
@@ -172,7 +172,7 @@ LEFT JOIN {schema}."key_EV_Event_1st" k
   AND k."wasPlayed_PR_NAM_Program_Name" = s.program_name;
 ```
 
-A row without a match is a new identity. Snowflake does not enforce that a key is unique: when `ic_key_` has rows, a key matches more than one identity, so check it after every load and before trusting a lookup. A route that does not make a key, such as one whose branch ends in a role instead of a value, is not generated; the script has a comment `-- The {route} key of {entity} is not generated: ...` with the reason, and one that is not functional has a `-- Note:` above its view.
+Only treat an unmatched row as new when the route is complete, the namespace and time are correct, and the source is known to identify a new instance this way. Stop on ambiguous matches. A route that does not make a key, such as one whose branch ends in a role instead of a value, is not generated; the script has a comment `-- The {route} key of {entity} is not generated: ...` with the reason, and one that is not functional has a `-- Note:` above its view.
 
 ## Errors
 

@@ -5,7 +5,7 @@ description: "Full-lifecycle Anchor Modeling on Snowflake. Use for **ALL** reque
 
 # Anchor Modeling
 
-Anchor Modeling is a database design technique that decomposes a domain into sixth-normal-form tables: identity tables (anchors), single-property tables (attributes), lookup tables (knots), relationship tables (ties), and event tables (nexuses). This skill targets Snowflake SQL exclusively.
+Anchor Modeling is a database design technique that decomposes a domain into sixth-normal-form tables, except where a relationship must be recorded as a whole: identity tables (anchors), single-property tables (attributes), lookup tables (knots), relationship tables (ties), and event tables (nexuses). This skill targets Snowflake SQL exclusively.
 
 ## Setup
 
@@ -19,7 +19,7 @@ Reference files. Load each one when a step says so, not all up front:
 - `references/model-xml.md`: the model XML that the generator reads, and how to write it. Load it with `generator.md`.
 - `references/semantic-views.md`: semantic views on an Anchor model, including as of a point in time. Load it when the user wants one.
 - `references/metadata.md`: what the Metadata column is for, batch tracking infrastructure, and how to roll back a load. Load it when building a task graph or when the user asks about Metadata.
-- `references/time.md`: the three kinds of time (changing, happening, recording), how to represent a time, where the times of a load come from, corrections, retractions and reliability in bi and crt, and what to do when a source has none. Load it at R1, G1, G2, L1 and when a question is about *when* or *as of*.
+- `references/time.md`: changing, assertion, recording, happening and structuring time; timestamp sources and proxies; corrections, retractions and reliability. Load it at R1, G1, G2, L1 and when a question is about *when* or *as of*.
 - `references/identity-and-keys.md`: surrogate identities, why not to hash natural keys, changing keys, early and late identity management. Load it at R2, G2 and L1.
 - `references/constraints.md`: rules beyond the keys (a value that must be unique, a combination that must not repeat), which must hold in every time slice, as violation views. Load it when the user states such a rule.
 - `references/performance.md`: when narrow tables win and when not, why they are fast and what it depends on, and as-of joins over many dates (the twine), temporal dimensions. Load it when a query is slow or a load is large.
@@ -92,7 +92,7 @@ Run the three checks under *After installing* in `references/generator.md`. Repo
    - For a database: `SHOW TABLES IN <db>.<schema>`, then `SHOW COLUMNS IN TABLE <table>` for each table. Examine foreign keys, column names, data types, and comments.
    - For staged files: `LIST @<stage>`, then `SELECT * FROM @<stage>/<file> LIMIT 10` to sample data and infer structure.
 3. Build a catalog of entities, their columns, relationships (from FKs or naming patterns), and candidate lookup/reference tables.
-. Look at the date and time columns (`references/time.md`): which are happening times (an event's date, to become attributes), which say when a row changed, which only say when it was loaded; at what granularity; in which zone. A source with only a load time cannot show when things changed: say so now.
+4. Test candidate keys, cardinalities and lookup lists with aggregates (`references/modeling-practice.md`); a sample is not enough. For each timestamp, distinguish happening, changing, assertion and recording time, and confirm precision and zone (`references/time.md`). A recording timestamp alone cannot tell when a fact changed.
 
 **⚠️ STOP**: Present the discovered entities and relationships, with what the data showed (and the surprises, as questions), to the user for confirmation before modeling.
 
@@ -100,19 +100,18 @@ Run the three checks under *After installing* in `references/generator.md`. Repo
 
 **Goal:** Map the source structure to Anchor Modeling constructs.
 
-Load `references/constructs.md` and `references/modeling-practice.md`.
+Load `references/constructs.md`, `references/modeling-practice.md` and `references/identity-and-keys.md`.
 
 **Rules for mapping:**
 
-- Each entity with a surrogate or natural key → **Anchor**. Use a 2-letter mnemonic derived from the entity name.
-- **Every anchor MUST have at least one identifier attribute**: a static attribute storing the source natural key (e.g., employee number, project code). Without it, there is no way to map source data to surrogate IDs during loading. Use a KOD (code) or similar mnemonic. Nexuses need one too, holding the source key of the event.
+- A thing with a persistent identity → **anchor** (2-letter mnemonic). Give it a surrogate identity; a source key is a way to find it, never a hash standing in for it.
+- For recurring loads of anchors and nexuses, settle the identity match: a static identifier attribute for one stable value, a key route over the model (possibly historized), or a trusted upstream mapping. Confirm source scope, reuse and ambiguity (`references/identity-and-keys.md`).
 - Each column on an entity → **Attribute** (3-letter mnemonic). Decide:
   - Static vs historized: a snapshot of current values shows nothing about change, so ask the user which properties change over time, in their words (practice file, Questions in plain language).
-  - If the column references a small lookup/enum table → **Knot** + knotted attribute.
-- Each foreign key or join table → **Tie**. Determine cardinality from key constraints.
-- Join tables with their own properties or additional FKs → **Nexus** candidate.
-- Small reference/enum tables (< ~50 rows, stable values) → **Knot** (3-letter mnemonic).
-- **Knot vs anchor for code+description pairs:** If a source dimension has both a code and a readable description, and you need both in the model, make it an anchor with a code attribute and a historized description attribute. Only use a knot if a single value column suffices.
+  - Use a knotted attribute for values in a shared, stable domain. The size of an observed lookup list is evidence, not the criterion.
+- Foreign keys and join tables are evidence for **ties**; confirm cardinality with the user.
+- An independently identifiable happening can be a **nexus** when its roles are required and stable. Keep optional or independently changing participants in separate ties.
+- **Knot vs anchor for code+description pairs:** If the lookup item needs separately modeled properties, such as a code and a description, use an anchor; historize the properties whose history matters.
 
 Check the model against the list in the practice file (Check before you present). Present it as the practice file says (Presenting the model): sentences in the user's words, examples with the case the model does not allow, assumptions, open questions with your proposed answers, and then the construct table:
 
@@ -145,7 +144,7 @@ Load `references/modeling-practice.md`, and `references/time.md` for the questio
 **Actions:**
 
 1. Ask the user to describe their domain: what are the main things, what do they know about each, how do they relate? If there is a document, a spreadsheet or a system to look at, use it, and test what you read in it against the data ([R1](#r1-discover-source), step 4).
-2. From what they said, work out what they have not settled: which things have an identity and how two are told apart, which properties change and whose history is wanted, which values come from a short fixed list, how many of one thing relate to how many of another, which relationships are happenings with details of their own, and whether the model must tell what was true from what was known (uni, bi, crt).
+2. From what they said, work out what they have not settled: which things have an identity and how two are told apart, which properties change and whose history is wanted, which values are a stable shared set, how many of one thing relate to how many of another, which relationships are happenings with details of their own, and whether to distinguish what was in effect, what someone believed, and what the warehouse had received.
 3. Ask about those, as the practice file says: in the user's words and not in Anchor terms, with an example from their domain and your own guess in each question, the costliest first, at most five in a round. Assume the cheap ones and say so.
 
 **⚠️ STOP**: Confirm the understanding of the domain, as sentences, before designing.
@@ -154,7 +153,7 @@ Load `references/modeling-practice.md`, and `references/time.md` for the questio
 
 **Goal:** Assign mnemonics and structure.
 
-Load `references/constructs.md` and `references/modeling-practice.md`.
+Load `references/constructs.md`, `references/modeling-practice.md`, `references/time.md` and `references/identity-and-keys.md`.
 
 **Actions:**
 
@@ -200,7 +199,7 @@ SHOW USER FUNCTIONS LIKE 'ANCHOR_GENERATE' IN ACCOUNT;
 
 Rules:
 
-- Declare every PK, UNIQUE and FK constraint with `RELY`. Snowflake does not enforce them, but `RELY` lets the optimizer eliminate unused joins in perspectives.
+- Declare PK, UNIQUE and FK constraints. Use `RELY` for join elimination only with validated data; see `ddl-patterns.md`, section 0.
 - Write every name from the model in double quotes (see Identifier Quoting under Snowflake-Specific Pitfalls); the schema is not quoted.
 - Add `COMMENT` on every table and view using descriptions.
 - Add `CLUSTER BY` to every table, by the identity of its owner (see `ddl-patterns.md`, section 0), as the generator does.
@@ -242,12 +241,12 @@ Load `references/naming-conventions.md`.
 
 **Goal:** Help the user query the model.
 
-**Before the query:** define the question (`references/warehouse-practice.md`, *When an agent or a tool queries the model*): as of when, by which definition, counting which identity; and say which of "what was true then" and "what did we know then" the answer is (`references/time.md`). A slow query, or a lookup of what was in effect at many dates: `references/performance.md`.
+**Before the query:** define the question (`references/warehouse-practice.md`): what was in effect, what someone believed, or what had been received or published (`references/time.md`). A changing-time filter resolves versions; for a historical count, also filter on the domain facts that make an identity exist or qualify then. For many dates or a slow query, read `references/performance.md`.
 
 **Rules:**
 
-- **For current-state queries**: Use latest perspectives (`lXX_...`). These join everything together, and with `RELY` constraints Snowflake skips joins to attributes that are not selected.
-- **For point-in-time queries**: Use point-in-time perspective functions (`pXX_...(timestamp)`). Pass timestamps in UTC.
+- **For what is in effect now**: Use `nXX_...` or `pXX_...(SYSDATE())`. `lXX_...` has no changing-time cutoff and may show future-effective data.
+- **For a chosen changing time**: Use `pXX_...(timestamp)` with a UTC timestamp. For an assertion cutoff as well, inspect the `t` signature and select the positor in crt.
 - **For change tracking**: Use difference perspectives (`dXX_...(start, end)`).
 - **For simple lookups**: Query individual tables directly.
 - Always explain what the perspective joins under the hood.
@@ -268,13 +267,13 @@ Load `references/semantic-views.md`, which holds the tested pattern and says wha
 
 ### S2: Design
 
-For each anchor: one logical table (a `SELECT` over `TABLE("p…"(…))`, or the `n`/`l` view for the current state), the identity as `PRIMARY KEY`, an unquoted lower case alias for every column, a dimension per attribute, and at least `COUNT` of the identity as a metric. Use the descriptions of the model as comments. Ties are relationships: say that this part is not tested (see the reference) before writing it.
+Use one logical table per anchor or nexus, based on `n` for current state or `p` for a chosen time. Declare `PRIMARY KEY` at the actual grain (identity with a chosen positor, or identity and positor in crt). Before counting, filter to the identities that exist or qualify at the chosen time; a bare count of anchor IDs is not a historical headcount. Use the descriptions as comments. Ties as semantic relationships are not tested (see the reference).
 
 **⚠️ STOP**: Present the semantic view for review before creating it.
 
 ### S3: Create and Check
 
-Run the `CREATE OR REPLACE SEMANTIC VIEW`, then check it with a query: `SELECT * FROM SEMANTIC_VIEW({view} DIMENSIONS {table}.{dimension} METRICS {table}.{metric});`. If Snowflake rejects the logical table, show the user the message and fall back to the `n` view as the source; do not guess.
+Run the `CREATE OR REPLACE SEMANTIC VIEW`, then check it with a query: `SELECT * FROM SEMANTIC_VIEW({view} DIMENSIONS {table}.{dimension} METRICS {table}.{metric});`. If Snowflake rejects the logical table, report the error. Use `n` only for a current-state request; for a fixed historical cutoff, try an ordinary view over the same cutoff. Stop if the fallback cannot preserve the requested semantics.
 
 ---
 
@@ -294,7 +293,7 @@ Snowflake has no triggers on tables, so the rule is a violation view in the shap
 
 ### C3: Create and Test
 
-Create the view, then try three loads into a scratch schema: one that must pass, one that must be flagged, and one that reuses a value after it stopped being in effect (passes). Add the view to the finalizer's check of the task graph (`references/metadata.md`) so a breaking batch is marked.
+In a scratch schema, test a load that must pass, an equal-start conflict, a backfill whose conflict starts later, and legitimate reuse at the preceding interval's exclusive end. Add the view to the task graph's validation (`references/metadata.md`) so a breaking batch cannot publish.
 
 ---
 
@@ -319,7 +318,7 @@ Load `references/ddl-patterns.md`, `references/naming-conventions.md` and `refer
 **Rules:**
 
 - New attributes on existing anchors: pick a 3-letter mnemonic not yet used on that anchor.
-- New anchors and nexuses: pick a 2-letter mnemonic not yet used in the model, and include an identifier attribute.
+- New anchors and nexuses: pick a 2-letter mnemonic not yet used in the model, and define an identity match if they will be loaded repeatedly.
 - New ties: compose from existing anchor/knot mnemonics + role names.
 - Generate DDL for the new objects AND update affected perspectives.
 - `CREATE TABLE IF NOT EXISTS` skips silently when a table with that name exists, even with a different structure. If a planned name already exists, compare it with `DESCRIBE TABLE` and report differences instead of assuming the DDL applied.
@@ -342,7 +341,7 @@ Load `references/constructs.md` (and `references/time.md` for anything about his
 
 - **Why Anchor Modeling**: non-destructive schema evolution, no ALTER TABLE, history built in, narrow tables favor columnar engines like Snowflake.
 - **When to use what**: anchor vs knot, tie vs nexus, static vs historized.
-- **Perspectives**: latest for dashboards, point-in-time for audits, difference for CDC.
+- **Perspectives**: now for what is in effect, latest without a changing-time cutoff, point-in-time for a chosen changing time, difference for changes, and time-traveling for assertion cutoffs.
 
 ---
 
@@ -352,7 +351,7 @@ Load `references/ddl-patterns.md`, `references/naming-conventions.md`, `referenc
 
 **Always implement loading as a Snowflake task graph (DAG).** This makes the load repeatable, captures the dependency order, and enables parallel execution where the graph allows it.
 
-**Loads are incremental and idempotent.** Anchor Modeling keeps history by appending rows. The recurring load never truncates. It inserts only what is new or changed, so running it twice with the same source data changes nothing. Snowflake does not enforce PK/UNIQUE/FK constraints, so every insert must filter out rows that already exist.
+**Loads are incremental and idempotent.** A recurring load never truncates. Plan replay and conflict detection before inserting. Snowflake standard tables do not enforce PK/UNIQUE/FK constraints: deduplicate the source, stop on conflicting candidates, and serialize competing writes. An anti-join alone is insufficient.
 
 ### L1: Plan the Task Graph
 
@@ -380,7 +379,7 @@ LOAD_FINAL                     (finalizer: the integrity checks)
 - A nexus loads after the anchors, knots and nexuses in its roles, then its identifier attribute, then its other attributes (as for an anchor).
 - Only the identifier attribute of an anchor or nexus is part of the anchor's own task: the other attributes map source rows to identities through it.
 
-**Finalizer.** `CREATE TASK LOAD_FINAL WAREHOUSE = {wh} FINALIZE = LOAD_ROOT AS ...` runs when the whole graph has finished, also when a task failed. A finalizer has no schedule and no children. Use it for the integrity checks (`SELECT * FROM {schema}.IntegrityViolations`, for example writing the result to a log table), so that they run on every load.
+**Finalizer.** `CREATE TASK LOAD_FINAL WAREHOUSE = {wh} FINALIZE = LOAD_ROOT AS ...` runs after the other tasks complete or fail (not if the root is skipped). Use it to log validation results, not to infer execution success. Publish only after all expected work and validation have succeeded (`references/metadata.md`).
 
 **Limits of a task graph (Snowflake):** at most **1,000 tasks** per graph, **100 child tasks** per task and **100 predecessors** per task. Count the tasks before creating them (root, knots, anchors, attributes, ties, nexuses, nexus attributes, finalizer) and then:
 - more than 99 anchors and ties directly under the root: put a layer of grouping tasks (no work) between the root and them;
@@ -389,14 +388,14 @@ LOAD_FINAL                     (finalizer: the integrity checks)
 
 **Compute.** Parallel tasks on one warehouse share it, so a graph with many parallel tasks queues unless the warehouse is large enough or multi-cluster. Serverless tasks (`USER_TASK_MANAGED_INITIAL_WAREHOUSE_SIZE` instead of `WAREHOUSE`) are managed per task. Ask the user which they want; the default is a named warehouse (L3).
 
-**Root task** draws the next batch ID from a sequence, publishes it to `LOAD_BATCH_CURRENT`, and logs the start in `LOAD_BATCH_LOG` (see `references/metadata.md`). It does no loading work itself.
+**Root task** associates the Snowflake graph-run ID with a batch ID in `LOAD_BATCH_LOG`. Child tasks resolve that same batch ID from the runtime graph-run ID; configure no overlap and serialize other writers to the same tables (`references/metadata.md`).
 
 **Initial load / full rebuild** is not part of the graph. If the user wants to start over, provide a separate truncate script: ties → nexus attributes → nexuses → anchor attributes → anchors → knots. Reset the sequences only if the tables are empty. Warn explicitly that it destroys all history, and run it only after the user has confirmed.
 
 **Only the uni-temporal patterns below are written.** For bitemporal and concurrent-reliance-temporal models the graph has the same shape (posits instead of rows), but there are no load statements yet: tell the user.
 ### L2: Load Patterns
 
-Replace `{db}.{sch}` with the fully-qualified schema. Use the batch tracking pattern from `references/metadata.md` for the Metadata value: every child task reads `{db}.{sch}.LOAD_BATCH_CURRENT` into a local variable `:md` and uses it as the Metadata value on every INSERT. Wrap each task body in `BEGIN ... END;`.
+Replace `{db}.{sch}` with the fully-qualified schema and `{md}` with `:md` in task bodies. Every child task resolves `:md` from its graph-run ID (`references/metadata.md`). The examples assume metadata is enabled. Wrap task bodies in `BEGIN ... END;`; use an explicit transaction for DML that must commit as one unit, with staging DDL outside that transaction.
 
 Every table is clustered by the identity of its owner (`ddl-patterns.md`, section 0), so each `INSERT ... SELECT` below ends with an `ORDER BY` on that identity: the rows are written in key order and the micro-partitions start out clustered. Keep the `ORDER BY` in the statements you write for ties, nexus attributes and knotted attributes too.
 
@@ -435,13 +434,13 @@ SELECT "{AN}_ID", natural_key, {md} FROM {an}_new ORDER BY "{AN}_ID";
 DROP TABLE {an}_new;
 ```
 
-**Keys of several values**: when the model has a key route for the anchor or nexus, the generated key view `{db}.{sch}."key_{AN}_{Descriptor}_{route}"` holds the key of every identity, including keys of several values and keys through ties and nexus roles (see `references/generator.md`, Natural keys). Use it in the `NOT EXISTS` above, and wherever source rows are mapped to IDs below, matching every value of the key; load the anchors that the key reaches through roles and ties first, since the view reads their values. Check `ic_key_{AN}_{Descriptor}_{route}` after the load.
+**Key routes**: the examples use a stable source key. For a route across attributes, ties or roles, resolve every branch and load the constructs it depends on first. Use the latest `key_…` view only when its time semantics fit the source. For reused or historized keys, match at the relevant changing time and within the right namespace (`references/identity-and-keys.md`). Stop on ambiguous or incomplete matches; do not treat them as new identities.
 
-**Static attributes**: insert only for owners that have no row yet. Map source rows to IDs through the identifier attribute.
+**Static attributes**: before inserting, require one distinct non-null candidate per owner and report any disagreement with an already stored value. Map source rows to IDs through the agreed lookup. The example uses a validated `{source}` and a static identifier attribute.
 
 ```sql
 INSERT INTO {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" ("{AN}_{ATR}_{AN}_ID", "{AN}_{ATR}_{AnchorDesc}_{AttrDesc}", "Metadata_{AN}_{ATR}")
-SELECT i."{AN}_KOD_{AN}_ID", any_value(src.{value_col}), {md}
+SELECT DISTINCT i."{AN}_KOD_{AN}_ID" AS owner_id, src.{value_col}, {md}
 FROM {source} src
 JOIN {db}.{sch}."{AN}_KOD_{AnchorDesc}_Code" i ON i."{AN}_KOD_{AnchorDesc}_Code" = src.{key_col}
 WHERE src.{value_col} IS NOT NULL
@@ -449,22 +448,32 @@ WHERE src.{value_col} IS NOT NULL
     SELECT 1 FROM {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" a
     WHERE a."{AN}_{ATR}_{AN}_ID" = i."{AN}_KOD_{AN}_ID"
   )
-GROUP BY i."{AN}_KOD_{AN}_ID"
-ORDER BY i."{AN}_KOD_{AN}_ID";
+ORDER BY owner_id;
 ```
 
-**Historized attributes (restatement check)**: insert a row only when the value differs from the latest stored value and is newer. `ChangedAt` comes from the source's change timestamp if it has one, otherwise the load time `sysdate()` (UTC).
+**Historized attributes, ordered snapshots only.** Prepare `{validated_snapshot}` as one non-null value and time per resolved owner (`id`, `val`, `changed_at`). If actual changing time is unavailable, use a stable observation timestamp, not a fresh `SYSDATE()` on retry (`references/time.md`). Recognize completed input replays and remove exact versions already stored. Run the preflight and write under the same writer exclusion:
+
+```sql
+-- Run against the snapshot after removing exact replays. Any result blocks this insert.
+SELECT s.id, s.changed_at,
+       CASE WHEN same_time."{AN}_{ATR}_{AN}_ID" IS NOT NULL
+            THEN 'conflicting value at the same time' ELSE 'requires backfill' END AS reason
+FROM {validated_snapshot} s
+LEFT JOIN {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" same_time
+  ON same_time."{AN}_{ATR}_{AN}_ID" = s.id
+ AND same_time."{AN}_{ATR}_ChangedAt" = s.changed_at
+WHERE EXISTS (
+    SELECT 1 FROM {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" h
+    WHERE h."{AN}_{ATR}_{AN}_ID" = s.id AND h."{AN}_{ATR}_ChangedAt" >= s.changed_at
+);
+```
+
+Only when the preflight is empty, compare to the current maximum and insert changed values:
 
 ```sql
 INSERT INTO {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}" ("{AN}_{ATR}_{AN}_ID", "{AN}_{ATR}_{AnchorDesc}_{AttrDesc}", "{AN}_{ATR}_ChangedAt", "Metadata_{AN}_{ATR}")
 SELECT s.id, s.val, s.changed_at, {md}
-FROM (
-    SELECT i."{AN}_KOD_{AN}_ID" AS id, src.{value_col} AS val, {changed_at_expr} AS changed_at
-    FROM {source} src
-    JOIN {db}.{sch}."{AN}_KOD_{AnchorDesc}_Code" i ON i."{AN}_KOD_{AnchorDesc}_Code" = src.{key_col}
-    WHERE src.{value_col} IS NOT NULL
-    QUALIFY ROW_NUMBER() OVER (PARTITION BY i."{AN}_KOD_{AN}_ID" ORDER BY {changed_at_expr} DESC) = 1
-) s
+FROM {validated_snapshot} s
 LEFT JOIN (
     SELECT *
     FROM {db}.{sch}."{AN}_{ATR}_{AnchorDesc}_{AttrDesc}"
@@ -476,13 +485,13 @@ WHERE cur."{AN}_{ATR}_{AN}_ID" IS NULL
 ORDER BY s.id;
 ```
 
-This takes one current value per key from a snapshot-style source. If the source holds several versions per key, keep them all, order by `changed_at` together with the latest stored row, and insert only the rows whose value differs from the previous one (`LAG`).
+**Historized attributes, timestamped changes or backfills.** Keep the source changing times. Validate uniqueness in the incoming and stored data at `(id, changed_at)`: skip exact replays and stop on different values at the same time. For late versions, inspect the merged history of affected owners, including both neighbors of each candidate, and apply the construct's restatement policy. Do not silently drop a change or rewrite a stored boundary to satisfy it. If the backfill is not supported or needs reconciliation, report it and stop. With `A@10` and `C@30` stored, `B@20` belongs in the backfill, not in the snapshot filter.
 
 **Knotted attributes**: same patterns, but join `{source}` to the knot on the value and insert the knot ID.
 
-**Ties**: map each role through its identifier attribute (or knot) and insert combinations not yet present on the identifier roles. For historized ties, apply the same restatement check as for historized attributes.
+**Ties**: resolve each role and report conflicting combinations for the same identifier. For historized ties, apply the same ordered-snapshot or timestamped-change rules as for attributes.
 
-**Nexuses**: a nexus's role columns (e.g., AN_ID, KS_ID) are typically not unique per row, so you **cannot** join back from the nexus table to the source to load attributes. Build a staging table with IDs drawn from the **sequence**, and only for events whose source key is not loaded yet:
+**Nexuses**: the role columns need not uniquely identify the event. First validate one candidate per event key and ensure every required role resolves; report missing roles and contradictions with stored roles. In this example the source has already passed those checks. Stage IDs from the named sequence for events that do not match an existing identity:
 
 ```sql
 CREATE OR REPLACE TEMPORARY TABLE {nx}_staging AS
@@ -494,16 +503,16 @@ SELECT
     src.{value_col} AS val
 FROM {source} src
 JOIN {db}.{sch}."{AN}_KOD_{AnchorDesc}_Code" anchor_map ON anchor_map."{AN}_KOD_{AnchorDesc}_Code" = src.{source_code}
-LEFT JOIN {db}.{sch}."{KNT}_{KnotDesc}" knot_map ON knot_map."{KNT}_{KnotDesc}" = src.{source_value}
+JOIN {db}.{sch}."{KNT}_{KnotDesc}" knot_map ON knot_map."{KNT}_{KnotDesc}" = src.{source_value}
 WHERE NOT EXISTS (
     SELECT 1 FROM {db}.{sch}."{NX}_KOD_{Descriptor}_Code" e
     WHERE e."{NX}_KOD_{Descriptor}_Code" = src.{event_key_col}
 );
 ```
 
-Then, in the same `BEGIN ... END` block, INSERT into the nexus, its identifier attribute, ALL its other attribute tables, and its ties (`WHERE` the optional FK `IS NOT NULL`) from the staging table, using `{NX}_ID`. Drop the staging table at the end. Drawing IDs from the sequence (never `ROW_NUMBER()`) keeps them unique across runs and keeps the sequence in step with the table.
+Insert the nexus and its identifier mapping in one DML transaction. Each dependent attribute or tie task then resolves the event through that mapping, including events loaded in earlier batches. This lets a late attribute or optional relationship load without creating a second event. Keep optional roles in separate ties; do not put nullable FKs in the nexus.
 
-After loading, run the integrity checks. Constraints are not enforced, and `RELY` makes the optimizer trust them, so duplicates would give wrong query results. For a model made by the generator, `SELECT * FROM {schema}.IntegrityViolations;` (or the `ic_{table}` view of what was loaded) must return no rows (`references/generator.md`, *Integrity checks*); for a model written by hand, use the queries in `ddl-patterns.md` (section 11).
+Before publication, check graph execution and integrity separately (`references/metadata.md`). Use the generated `IntegrityViolations` and custom rule views, or validate the hand-written model as in `ddl-patterns.md`. Check before readers can query invalid data under `RELY`; detecting violations after exposing the rows does not protect query results.
 
 **⚠️ STOP**: Present the task graph design (the dependencies, the number of tasks against the limits in L1, and the compute) and the load SQL for approval before creating tasks.
 
@@ -514,7 +523,7 @@ After loading, run the integrity checks. Constraints are not enforced, and `RELY
 - **Use BEGIN...END blocks** for multi-statement task bodies (Snowflake Scripting).
 - **Use fully-qualified three-part names** (`database.schema.object`) for every table and sequence in task bodies. Do not rely on the task's session context for name resolution.
 - **Resume child tasks before running the root.** Run `ALTER TASK {child} RESUME` for each child, which works whether or not the root has a schedule. `SELECT SYSTEM$TASK_DEPENDENTS_ENABLE('{root_task}')` resumes the whole graph including the root, so only use it when the root has a schedule and should start running on it.
-- **Verify after execution** by checking task history, row counts and the integrity checks:
+- **Verify before publication** by checking execution for the exact graph run, row counts and integrity (`references/metadata.md`). The following is for diagnostics, not a publication gate:
 
 ```sql
 -- Check task graph results
@@ -531,13 +540,13 @@ ORDER BY scheduled_time;
 
 ## Snowflake-Specific Pitfalls
 
-### Constraints Are Not Enforced
-Snowflake enforces only `NOT NULL`. PK, UNIQUE and FK constraints are metadata. Declare them with `RELY` for join elimination, and make every load filter out existing rows. See `ddl-patterns.md`, section 0.
+### Standard Tables Do Not Enforce Keys
+`NOT NULL` and `CHECK` are enforced. PK, UNIQUE and FK constraints are metadata on standard Snowflake tables. Validate before publication, especially with `RELY` (`references/ddl-patterns.md`, section 0).
 
 ### Identifier Quoting
 Write every name from the model in double quotes (`"AC_Actor"`, `"AC_NAM_ChangedAt"`), in DDL, queries and loads. The generator does, and it keeps the case and allows national characters (ö, å, ä), which an unquoted identifier does not: unquoted names are read as upper case and may hold only A-Z, digits, `_` and `$`. A quoted name is case sensitive: refer to a generated table as `public."AC_Actor"`, never `AC_Actor` (that is `AC_ACTOR`). The schema is not quoted. A database made without quotes has upper case names; classify its objects by kind and structure ([Q1](#q1-identify-model)). See `references/naming-conventions.md`.
 ### Sequences, Not IDENTITY
-Anchors and nexuses use a sequence default, never `IDENTITY`. Snowflake IDENTITY columns reject explicit values, and loads must insert IDs drawn from the sequence into several tables.
+Use a named sequence so a load can allocate an identity once and use it in several tables. Explicit `IDENTITY` inserts are allowed, but can collide with later generated values.
 
 ### Time Zones
 Store every `ChangedAt` as `timestamp_ntz(9)` in UTC and use `sysdate()` for "now". Never local time (daylight saving repeats an hour) and never a time of day alone (`references/time.md`). Interactive sessions and task sessions can have different `TIMEZONE` settings, so `current_timestamp()` cast to NTZ would give inconsistent results.
@@ -552,14 +561,14 @@ An order date or a birth date is an attribute of the thing (happening time). `Ch
 Identities are sequence integers. A hash of a natural key that can change becomes another thing, and costs several times the space (`references/identity-and-keys.md`).
 
 ### Rules Over Time
-A rule over a historized value has to hold in every time slice. A constraint on a table cannot say that, and Snowflake does not enforce them anyway: use a violation view (`references/constraints.md`).
+A rule that applies in every time slice needs an interval or boundary check, not a row-local `CHECK`. Use a violation view (`references/constraints.md`).
 
 ---
 
 ## Common Patterns
 
 ### Metadata Column
-Every table has a `Metadata_XX int not null` column. This is used for tracking the source or batch of each row. Always include it.
+The batch tracking patterns assume metadata is enabled. `Metadata_…` links a row to the batch that recorded it, not to an assertion time (`references/metadata.md`).
 
 ### Historized Attributes
 The `ChangedAt` column is part of the primary key. The latest perspective keeps the row with the highest `ChangedAt` per entity (`QUALIFY ROW_NUMBER()`). Point-in-time does the same after filtering `ChangedAt <= changingTimepoint`.

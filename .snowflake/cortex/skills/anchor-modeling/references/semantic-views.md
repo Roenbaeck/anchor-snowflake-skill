@@ -2,11 +2,11 @@
 
 A Snowflake semantic view gives business names, dimensions and metrics to data that a model holds. This is how to build one on an Anchor model, including **as of a point in time**.
 
-**What is verified and what is not.** The pattern in *The pattern* below was found by trial and error in a Snowflake account and works there. Snowflake's own documentation of `CREATE SEMANTIC VIEW` does not say that a logical table may be a query over a table function, so it can change; if it stops working, fall back to a perspective view (see *Other sources for a logical table*). Everything marked **not tested** is guidance that has not been run.
+**What is verified and what is not.** A logical table over a point-in-time table function was tried in a Snowflake account. The revised metric and UTC variant below have not been retested. Snowflake's documentation of `CREATE SEMANTIC VIEW` does not say that a logical table may be a query over a table function. Prefer the ordinary `n` perspective for current state, or an ordinary view over a function with a fixed cutoff if the direct table-function pattern is unavailable.
 
 ## The pattern
 
-A logical table does not have to name a table or a view: it can be a `SELECT` over `TABLE(...)` of a **point-in-time perspective** (`p` prefix, a table function that takes a timestamp). The timestamp is an expression in the definition.
+This uni-temporal example uses a `SELECT` over `TABLE(...)` of a **point-in-time perspective**. It measures **actors with a known name at the cutoff**, not whether all actors existed then. A perspective driven by the anchor can retain an identity even when no name version is in effect.
 
 ```sql
 CREATE OR REPLACE SEMANTIC VIEW ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv
@@ -17,7 +17,7 @@ CREATE OR REPLACE SEMANTIC VIEW ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv
         "AC_NAM_Actor_Name" AS actor_name,
         "AC_GEN_GEN_Gender" AS gender,
         "AC_PLV_PLV_ProfessionalLevel" AS professional_level
-      FROM TABLE(ANCHOR_EXAMPLE_UNI.PUBLIC."pAC_Actor"(CURRENT_TIMESTAMP::TIMESTAMP_NTZ))
+      FROM TABLE(ANCHOR_EXAMPLE_UNI.PUBLIC."pAC_Actor"(SYSDATE()))
     )
       PRIMARY KEY ("AC_ID")
       COMMENT = 'Actors at current point in time'
@@ -31,8 +31,8 @@ CREATE OR REPLACE SEMANTIC VIEW ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv
       COMMENT = 'Professional level of the actor'
   )
   METRICS (
-    actors.actor_count AS COUNT("AC_ID")
-      COMMENT = 'Total number of actors'
+    actors.named_actor_count AS COUNT(actor_name)
+      COMMENT = 'Actors with a known name at the cutoff'
   )
   COMMENT = 'Semantic view over Anchor Model point-in-time function for Actors'
 ```
@@ -43,13 +43,13 @@ Query it with the `SEMANTIC_VIEW` clause (clause order in the definition is `TAB
 SELECT * FROM SEMANTIC_VIEW(
   ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv
   DIMENSIONS actors.gender_dim
-  METRICS actors.actor_count
+  METRICS actors.named_actor_count
 );
 ```
 
 ## The point in time from a session variable
 
-A **session variable** in place of the fixed timestamp lets whoever queries choose the point in time. This was also found by trial and error and works in the account where it was tried:
+A **session variable** in place of the fixed timestamp lets whoever queries choose the point in time. This was tried with the original metric; recheck the revised example in your account:
 
 ```sql
 SET pit_timestamp = '2024-06-15 12:00:00'::TIMESTAMP_NTZ;
@@ -74,28 +74,28 @@ CREATE OR REPLACE SEMANTIC VIEW ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var
       COMMENT = 'Gender of the actor'
   )
   METRICS (
-    actors.actor_count AS COUNT("AC_ID")
-      COMMENT = 'Total number of actors'
+    actors.named_actor_count AS COUNT(actor_name)
+      COMMENT = 'Actors with a known name at the cutoff'
   )
   COMMENT = 'Semantic view with session variable timestamp'
 ```
 
-With the variable set, the view is queried as usual, and this was run and works:
+With the variable set, query the view as usual:
 
 ```sql
 SELECT * FROM SEMANTIC_VIEW(
   ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var
-  METRICS actors.actor_count
+  METRICS actors.named_actor_count
 );
 ```
 
-**The variable is read when the view is queried.** `SELECT GET_DDL('SEMANTIC_VIEW', 'ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var')` returns the definition with `$pit_timestamp` in it, not a value, so nothing is substituted when the view is created. To see it in the results too, query the view, change the variable, and query again: a model with history gives different answers for two dates on either side of a change.
+**The variable is read when the view is queried.** `SELECT GET_DDL('SEMANTIC_VIEW', 'ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var')` returns the definition with `$pit_timestamp` in it. Test with an actor whose first name version falls between the two cutoffs. The actor should contribute to the count only at the later cutoff. A name change between two known names need not change the count.
 
 ```sql
 SET pit_timestamp = '2020-01-01'::TIMESTAMP_NTZ;
-SELECT * FROM SEMANTIC_VIEW(ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var METRICS actors.actor_count);
+SELECT * FROM SEMANTIC_VIEW(ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var METRICS actors.named_actor_count);
 SET pit_timestamp = SYSDATE();
-SELECT * FROM SEMANTIC_VIEW(ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var METRICS actors.actor_count);
+SELECT * FROM SEMANTIC_VIEW(ANCHOR_EXAMPLE_UNI.PUBLIC.test_sv_var METRICS actors.named_actor_count);
 ```
 
 What to keep in mind:
@@ -107,14 +107,14 @@ What to keep in mind:
 
 1. **Take the column names from the function, not from the naming rules.** Names of knotted columns in particular differ between naming conventions. Read them off the function: `DESCRIBE FUNCTION {schema}."p{AN}_{Descriptor}"(TIMESTAMP_NTZ)` or `SELECT * FROM TABLE({schema}."p{AN}_{Descriptor}"(SYSDATE())) LIMIT 0`.
 2. **Quote the generated names exactly** inside the logical table's `SELECT` (`"AC_NAM_Actor_Name"`, `"pAC_Actor"`): they are case sensitive (see `naming-conventions.md`). Give every column an **unquoted alias in lower case** (`AS actor_name`); dimensions and metrics refer to those aliases, and the semantic view is then easy to use.
-3. **One logical table per anchor or nexus**, with the identity column as `PRIMARY KEY`. Its attributes become dimensions (or, if numeric and meant to be summed or averaged, the argument of a metric: `SUM(revenue)`), and a count of the identity is the usual first metric.
+3. **One logical table per anchor or nexus.** Use its actual key: identity for uni or bi, or identity and positor in crt unless you first select a positor. Define what qualifies an identity (for example, in service at the cutoff) before counting it. Add a predicate on the relevant domain facts rather than counting all anchor IDs; a batch load time is not evidence that the thing existed or qualified.
 4. **A knotted attribute** is the knot's value column of the perspective (`AC_GEN_GEN_Gender` above), not the knot's identity.
-5. **The point in time.** The argument has to be an expression. With an expression such as `SYSDATE()` or a fixed `'2024-12-31'::TIMESTAMP_NTZ` the semantic view has one point in time; with a session variable (above) the one who queries chooses it. For the current time, `SYSDATE()` (UTC, which is what a `ChangedAt` holds, and what the `n` perspectives use) is the choice that agrees with the model; the example above used `CURRENT_TIMESTAMP::TIMESTAMP_NTZ`, which is the session's own time zone. **Not tested:** `SYSDATE()` in a semantic view. For something that varies by period, make a snapshot table with an as-of column and use it as the logical table, with the as-of column as a dimension (**not tested**).
+5. **The point in time.** Use `SYSDATE()` for UTC now; `CURRENT_TIMESTAMP()::TIMESTAMP_NTZ` uses the session's local clock. A fixed UTC timestamp sets one changing-time cutoff per view, while a session variable lets the reader choose it. For an assertion cutoff use the `t` perspective and inspect its arguments. For many cutoffs, start with the as-of join patterns in `performance.md`.
 6. **Name** the semantic view and give it a `COMMENT`; use the descriptions of the model as the `COMMENT` of the logical tables and the dimensions.
 
 ## Other sources for a logical table (not tested)
 
-- The **now** perspective `n{AN}_{Descriptor}` and the **latest** perspective `l{AN}_{Descriptor}` are ordinary views: `actors AS ANCHOR_EXAMPLE_UNI.PUBLIC."nAC_Actor"`. This is the safest source for the current state, and no timestamp is needed.
+- The **now** perspective `n{AN}_{Descriptor}` is an ordinary view: `actors AS ANCHOR_EXAMPLE_UNI.PUBLIC."nAC_Actor"`. Use it for values in effect now. The **latest** perspective `l{AN}_{Descriptor}` may include future-effective values.
 - **Ties** relate the logical tables of the anchors that they join: a `RELATIONSHIPS` clause between two logical tables on the columns of the tie's roles. The syntax of a relationship over a point-in-time function has not been tried; build the logical table of the tie the same way (a query over `TABLE("p{tie_name}"(...))`), then write the relationship, and run it before relying on it.
 
 ## Limits

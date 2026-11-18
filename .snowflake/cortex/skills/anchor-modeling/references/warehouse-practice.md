@@ -4,7 +4,7 @@ Load this when a user asks where an Anchor model fits in a warehouse or lake, wh
 
 ## Loading discipline
 
-- **Insert, never update.** Load with selects and inserts only. A change is a new row, a correction is a new row, and a bad batch is undone by deleting exactly the rows that it inserted, because every row maps to the batch that wrote it (`metadata.md`). Streaming a source in one scan is a goal of the loads. Among the author's reasons for this "zero update strategy" (2007) are that nothing is rewritten, so there are fewer locks and deadlocks while loading and reading (a SQL Server argument), and that an anchor is eternal: only deletes to revert faulty data.
+- **Keep recurring loads append-only.** Record changes and assertions without overwriting existing history. This is the author's "zero update strategy" (2007); on SQL Server it also reduced locking. A batch tag helps identify inserted rows for recovery, but later dependencies can make deleting those rows unsafe (`metadata.md`).
 - **Large volumes go in with `COPY INTO` from a stage and set-based inserts**, not row by row (`SKILL.md`, *Data Loading Workflow*; `performance.md`). Parse awkward sources (a large XML, say) outside the database into flat files first: the author's `unstruct` does it for simple XML, and is early software with little error handling, so check its output.
 - **Never change a posit in place.** Where the model is bitemporal or concurrent, a mistake is corrected by retracting the wrong version and adding the right one, never by overwriting; history keeps both.
 
@@ -33,7 +33,7 @@ The older post, *The Slayers of Layers* (2019), gives the test to apply to every
 
 | Data Vault | Anchor |
 |---|---|
-| Hub (business key) | **Anchor**, with the business key as a static *identifier* attribute; the identity itself is a generated sequence (`identity-and-keys.md`) |
+| Hub (business key) | **Anchor**, with a surrogate identity. Match the business key through an attribute or a key route (`identity-and-keys.md`) |
 | Satellite | **Attributes**: one table per column, each historized or not as its own column changes, so a change to one column writes one small row, and a column that is added later is a new table |
 | Link | **Tie**, with its cardinality and identifier roles stated in the model; a link's own descriptive data is attributes of a nexus or of an anchor made for it |
 | Reference table | **Knot** |
@@ -44,7 +44,7 @@ What differs, so that nothing is promised that is not so: **no hashing of keys**
 
 - **Define the question first.** *How many customers do we have?* has several answers: customers as of when, by which definition (billed, active, ever), counting which identity. An actuary and an accountant can both be right. Ask which they mean, state the definition in the answer, and give the same answer to the same question tomorrow: put the agreed definitions in views or a semantic layer, with a comment, once.
 - **A model generated twice from the same description will differ.** In the author's experiment with a language model, a bakery gave a different model on each run. So keep the model XML and the list of assumptions as the record, change it by editing it, and do not regenerate it from a description each time.
-- **Answer "what was in effect" and "what did we know then" from the historized model**, with the point-in-time perspective (`time.md`); say which of the two the answer is.
+- **Say which cutoff the answer uses.** Use changing time for what was in effect, changing and assertion time for what someone believed, and recording or publication time for what the warehouse had available (`time.md`).
 - **Give agents the model's descriptions.** They are the comments the generator writes on every table and column, and they are what lets an agent read the model without guessing.
 
 ## Sources

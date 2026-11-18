@@ -4,13 +4,13 @@ Load this when the user states a rule that the model should enforce: "stage name
 
 ## What the generated model already checks
 
-Do not rebuild these. Snowflake enforces only `NOT NULL`: primary, unique and foreign keys are metadata (declared `RELY`), and the generated **integrity checks** find the rows that break them: `IntegrityViolations` for the model, `ic_<table>` for one table (`generator.md`, *Integrity checks*). They cover duplicate keys, references to nothing, restatements, and in bi and crt temporal duplicates and contradicting assertions. What is left is the user's own rules: a value that must be unique across things, a combination that must not repeat, a range, a rule that spans tables.
+On the standard Snowflake tables used here, `NOT NULL` and `CHECK` are enforced, but primary, unique and foreign keys are not. The generated **integrity checks** report key violations: `IntegrityViolations` for the model, `ic_<table>` for one table (`generator.md`, *Integrity checks*). They also cover restatements and, in bi and crt, temporal duplicates and contradicting assertions. What is left is the user's own rules.
 
 ## The principle: every time slice
 
 In a historized model **a rule has to hold in every time slice**, not in the rows that happen to be in the table. A stage name that is unique today and was used by another stage last year breaks the rule only if both were in effect at once. So:
 
-- **A table constraint cannot say it**, and Snowflake would not enforce one anyway. In databases that have triggers, the author checks a rule when a row is inserted, only for the slices that row touches, with an `AFTER INSERT` trigger over the point-in-time perspective, rolling back on a violation, and not with `CHECK` constraints (the number of time points to check is very large). Snowflake has no triggers on tables.
+- **A row-local `CHECK` can enforce a value range, not a rule across temporal slices.** For temporal uniqueness, check affected intervals or all their change boundaries, not only the inserted row's time: a backfill can overlap a version that starts later. Snowflake has no table triggers.
 - **So in Snowflake the rule is a violation view** in the shape of the generated checks, which the load runs after every batch and treats as a failure. A rule over a non-historized attribute needs only the latest view.
 - **Do not call a point-in-time function once for each row of another table** (`FROM t, TABLE(p...(t.at))`): Snowflake cannot evaluate it (`generator.md`). The view below needs no function.
 
@@ -37,7 +37,7 @@ WHERE NOT EXISTS (
 GROUP BY i."ST_NAM_ST_ID", i."ST_NAM_ChangedAt", i."ST_NAM_Stage_Name";
 ```
 
-On a small example it reported exactly the conflict that was there (a name taken by a second stage while the first still had it) and nothing for a name reused after its first holder had changed it. Schema-qualify the names as the model's are. This view is for a uni-temporal model. In bi and crt the assembled view `<attribute name>` lists every assertion (posit and annex rows together), not what is in effect. For a rule over what is in effect in bi or crt, check the perspective, the latest (`l`) or now (`n`) view for the present, or a point-in-time view called with a constant time; a rule over every slice needs the shape above over what the perspective shows, and has not been run.
+The query scans the starts of **all** versions, not just new rows: an overlap starts at one version's boundary. On a small example it reported a conflict while both stages held a name and did not report reuse after the first stage changed it. Schema-qualify the names as the model's are. This view is for a uni-temporal model. In bi and crt the assembled view lists assertions, not what is in effect. Use `n` for the present, `p` for a chosen changing time, and `t` to also set an assertion cutoff. A rule over every slice needs both timelines and, in crt, a specified positor or reconciliation policy; the uni query does not implement that.
 
 ## A rule across a tie
 
@@ -47,9 +47,8 @@ On a small example it reported exactly the conflict that was there (a name taken
 
 1. **Ask what the rule means in time**, in the user's words, with the case that must fail: "Can two stages have the same name at the same time? Can a closed stage give its name to a new one?" A rule that holds only *now* and a rule that holds *in every slice* are different, and the second is stricter.
 2. **Write the view** in the shape above (`ic_rule_<name>`, four columns) and keep it in its own script next to the model XML, **not** in the generated script: the generator does not know it, so it survives regeneration only as a separate script.
-3. **Run it from the load.** Add it to the finalizer's check next to `IntegrityViolations` (`metadata.md`, *Finalizer*), so that a batch that breaks the rule is marked, not silently accepted. When it finds rows, show them (`ViolationKey` says which) and stop; do not delete rows without asking.
-4. **Test it with three loads:** one that must pass, one that must be flagged, and one that reuses a value after it stopped being in effect (passes).
-5. **Rules of other shapes** (a value range, a value that must exist, a rule over several tables) have the same form: a violation view that finds the rows that break them in some slice. These shapes are not in the author's examples and have not been run.
+3. **Run it before publication.** Add it to the validation next to `IntegrityViolations` (`metadata.md`). When it finds rows, show them (`ViolationKey` says which) and block publication; do not delete rows without asking.
+4. **Test normal use, an equal-start conflict, a backfill whose conflict starts later, and reuse at the preceding interval's exclusive end.** First store `Orion` for stage B at time 20; then load `Orion` for stage A at time 10. The view must flag the overlap beginning at 20.
 
 ## Sources
 
