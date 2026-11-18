@@ -41,6 +41,7 @@ Ask these in the user's words. Each has a guess of your own in it, so that a pla
 | A date | "Is the *order date* the day the order was placed, the day someone stated that date, the day it was stored, or when the value took effect? If corrected, do you need the old date?" | happening, assertion, recording or changing time (`time.md`) |
 | Where the times come from | "Does the source say when each row changed, or only when you received it? How exact is the time: to the second, or only the day? In which time zone?" | real change times or a proxy, the precision of the time type, the zone to convert from: `time.md` |
 | Missing values | "Is a *phone number* always known? If it is not, is the *customer* still a valid customer?" | whether absence is normal (it is, in this model: no row) |
+| Optional participants | "Does every *transaction* have a *project*, or only some? What does the system hold for the others: a blank, a dummy code like 0, or nothing?" | whether the participant is always there. If not, it is a relationship of its own, and the dummy code is a missing row, never a value (`SKILL.md`, *No Sentinel Identities*) |
 | Mistakes and endings | "When a value was wrong, do you overwrite it or keep the wrong one marked as wrong? When something ends, does it disappear?" | corrections and retractions, deletability |
 | What was true, believed, or available | "If a correction was made Monday but reached us Tuesday, should a report for Monday include it? Can two sources disagree about the same fact?" | whether to keep assertion and recording time separately; whether a positor is needed (`time.md`) |
 
@@ -57,7 +58,7 @@ Show the user, in this order. Show the construct table last, as the technical re
 2. **Examples and a test that must fail.** Give a few made-up rows for each group of sentences, and for each relationship the case the model does not allow: "So Alicia can be in *Hamlet* with the rating *good*. She cannot have both *good* and *bad* in *Hamlet* at the same time. Is that right?" The case that fails is what the key of the relationship says, and it is where wrong models hide.
 3. **Assumptions**, each with the alternative and what it would change, in plain words:
    - "An actor's name can change and we keep the old ones. (You said names are sometimes corrected. If not, we only keep the latest.)"
-4. **Open questions**, at most five, each with your proposed answer.
+4. **Open questions**, at most five, each with your proposed answer. Also say what you left out: the source columns that the model does not carry, and why, so that leaving them out is a decision the user has seen.
 5. **The construct table.**
 
 The user confirms the sentences, the examples, the assumptions and the questions. Do not go on to generate on a bare "looks fine" to a table.
@@ -72,7 +73,7 @@ In R1 and wherever the user can point at data, test your guesses with queries, i
 - **How many:** `SELECT a, COUNT(DISTINCT b) FROM t GROUP BY a HAVING COUNT(DISTINCT b) > 1`, in both directions, to see whether a relationship is one-to-many or many-to-many.
 - **A list of values:** `COUNT(DISTINCT col)` against the rows, and how often new values appear. A small, stable set is a list; an open one is not.
 - **Change:** more than one row per key with a date, or an audit or history table, shows that something changes. A single current snapshot shows nothing about change: ask.
-- **Missing values:** the share of nulls for each column.
+- **Missing values:** the share of nulls for each column. For **every participant of a candidate happening** (each column that will be a role) count the nulls and blanks, the dummy codes (`0`, `-1`, `'N/A'`, `'UNKNOWN'`), and the values that find no match in the other thing's own list. Any count above zero means the participant is optional: it gets a relationship of its own, not a column of the happening. Do this at the discovery step, before choosing between a happening with roles and separate relationships; a load that fails on `NOT NULL` is this question arriving too late.
 
 Report evidence in a sentence: "In 12,431 rows `order_no` is unique and never empty, so I would identify an order by it." Report surprises as questions. The data shows what is now; it cannot show whether a relationship may become many-to-many, or whether history will be needed. Ask about those.
 
@@ -94,6 +95,7 @@ Go through this list on your own model, then fix a point or put it in the assump
 **Relationships**
 - Each relationship reads as a sentence with its roles, and the roles that make up its key match the answers about how many.
 - A happening with its own identity has an explicit way to be placed in time and matched in a repeated load. Use a nexus for its required, stable participants; model optional or independently changing participants in separate ties.
+- Every role of a happening is present in every row of the data (null, blank and dummy-code count zero, and every value finds its thing). A role that is sometimes missing is a relationship of its own. No row of the model points at an identity that has no row of its own (`0`, `-1`, an unknown placeholder).
 - No property holds another thing's key.
 
 **Time**
