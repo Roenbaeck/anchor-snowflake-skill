@@ -112,10 +112,39 @@ What to keep in mind:
 5. **The point in time.** Use `SYSDATE()` for UTC now; `CURRENT_TIMESTAMP()::TIMESTAMP_NTZ` uses the session's local clock. A fixed UTC timestamp sets one changing-time cutoff per view, while a session variable lets the reader choose it. For an assertion cutoff use the `t` perspective and inspect its arguments. For many cutoffs, start with the as-of join patterns in `performance.md`.
 6. **Name** the semantic view and give it a `COMMENT`; use the descriptions of the model as the `COMMENT` of the logical tables and the dimensions.
 
+## Slicing a nexus by its anchors (relationships)
+
+A nexus measured by things it refers to (cost center, project) needs those things as logical tables and `RELATIONSHIPS` between them. **Tested on Snowflake (2026-11-18) over base tables of this shape**: a nexus `HT_Ledger` with a required role to `KS_Cost`, and an optional role to `PR_Project` held in the tie `HT_PR_Ledger_in_Project`, whose key is the nexus role (a transaction belongs to at most one project). Five transactions, three of them with a project.
+
+```sql
+CREATE OR REPLACE SEMANTIC VIEW {db}.{sch}.SV_LEDGER
+  TABLES (
+    ht   AS {db}.{sch}."HT_Ledger"              PRIMARY KEY ("HT_ID")    COMMENT = 'Ledger transactions',
+    ks   AS {db}.{sch}."KS_Cost"                PRIMARY KEY ("KS_ID")    COMMENT = 'Cost centers',
+    pr   AS {db}.{sch}."PR_Project"             PRIMARY KEY ("PR_ID")    COMMENT = 'Projects',
+    htpr AS {db}.{sch}."HT_PR_Ledger_in_Project" PRIMARY KEY ("HT_ID_in") COMMENT = 'Which project a transaction belongs to, if any'
+  )
+  RELATIONSHIPS (
+    ht_to_ks AS ht   ("KS_ID_at")  REFERENCES ks,     -- a required role: nexus to anchor
+    ht_to_htpr AS htpr ("HT_ID_in") REFERENCES ht,     -- an optional role: nexus ...
+    htpr_to_pr AS htpr ("PR_ID_for") REFERENCES pr     -- ... through its tie to the anchor
+  )
+  DIMENSIONS (
+    ks.cost_center AS "KS_Name" COMMENT = 'Name of the cost center',
+    pr.project     AS "PR_Name" COMMENT = 'Name of the project'
+  )
+  METRICS ( ht.total_amount AS SUM("HT_Amount") COMMENT = 'Sum of transaction amounts' )
+  COMMENT = 'Ledger by cost center and project';
+```
+
+`SEMANTIC_VIEW(... DIMENSIONS pr.project METRICS ht.total_amount)` gave Alpha 300, Beta 300 and **an empty group of 900**: the transactions with no tie row are counted, not lost, and the sum over every group equals the sum of all rows. By cost center it gave North 800, South 700; by both, North/Alpha 300, North/(none) 500, South/Beta 300, South/(none) 400. Check the same way on a real model: the groups must add up to the total.
+
+What was **not** tested: logical tables over the `l`, `n` or `p` perspectives of a generated model in a relationship (the `l` views were used for a single logical table in a built model, without relationships), relationships in a model with a historized tie, and a point in time together with relationships. If a relationship is rejected on a perspective, fall back to one logical table that joins what is needed in its `SELECT`, and say so.
+
 ## Other sources for a logical table (not tested)
 
 - The **now** perspective `n{AN}_{Descriptor}` is an ordinary view: `actors AS ANCHOR_EXAMPLE_UNI.PUBLIC."nAC_Actor"`. Use it for values in effect now. The **latest** perspective `l{AN}_{Descriptor}` may include future-effective values.
-- **Ties** relate the logical tables of the anchors that they join: a `RELATIONSHIPS` clause between two logical tables on the columns of the tie's roles. The syntax of a relationship over a point-in-time function has not been tried; build the logical table of the tie the same way (a query over `TABLE("p{tie_name}"(...))`), then write the relationship, and run it before relying on it.
+- **Ties over a point-in-time function** (relationships over a table function; plain tables are tested, see above): a `RELATIONSHIPS` clause between two logical tables on the columns of the tie's roles. The syntax of a relationship over a point-in-time function has not been tried; build the logical table of the tie the same way (a query over `TABLE("p{tie_name}"(...))`), then write the relationship, and run it before relying on it.
 
 ## Limits
 

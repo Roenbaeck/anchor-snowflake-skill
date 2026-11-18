@@ -110,7 +110,8 @@ Load `references/constructs.md`, `references/modeling-practice.md` and `referenc
   - Static vs historized: a snapshot of current values shows nothing about change, so ask the user which properties change over time, in their words (practice file, Questions in plain language).
   - Use a knotted attribute for values in a shared, stable domain. The size of an observed lookup list is evidence, not the criterion.
 - Foreign keys and join tables are evidence for **ties**; confirm cardinality with the user.
-- An independently identifiable happening can be a **nexus** when its roles are required and stable. Keep optional or independently changing participants in separate ties.
+- An independently identifiable happening can be a **nexus** when **every role is present in every row of the data**. Test each candidate role (null, blank, dummy codes such as `0` or `-1`, values with no match in the other thing's list; `references/modeling-practice.md`, *Asking the data*) before you decide. A role that fails the test, and any independently changing participant, is a **tie** of its own, identified by the nexus. Never fill a role with `0`, `-1` or an "unknown" row to make it fit: that is a missing row (*No Sentinel Identities*, below).
+- **Descriptions.** Write a description for every construct from the confirmed sentence, in the user's words, as in G2 step 5. The generator turns them into `COMMENT`s; a model without descriptions is not ready to present.
 - **Knot vs anchor for code+description pairs:** If the lookup item needs separately modeled properties, such as a code and a description, use an anchor; historize the properties whose history matters.
 
 Check the model against the list in the practice file (Check before you present). Present it as the practice file says (Presenting the model): sentences in the user's words, examples with the case the model does not allow, assumptions, open questions with your proposed answers, and then the construct table:
@@ -213,6 +214,8 @@ Execute the approved DDL one statement at a time in dependency order. Verify eac
 
 A script from the generator is already in dependency order (a function exists before another function calls it). A statement ends at the first semicolon that is outside a `$$ ... $$` body. If a statement fails, stop and show the user the statement and the message; do not edit generated SQL to get past it, since the fix belongs in the templates.
 
+After the last statement, check that the descriptions arrived: list the model's base tables whose `COMMENT` is empty (`SELECT table_name FROM {db}.INFORMATION_SCHEMA.TABLES WHERE table_schema = '{SCH}' AND table_type = 'BASE TABLE' AND COALESCE(comment, '') = ''`, leaving out the load's own log tables). A table without a comment means the model XML had no `<description>` for it: add it to the XML and generate again, not by hand.
+
 ---
 
 ## Query Workflow
@@ -261,13 +264,13 @@ Load `references/semantic-views.md`, which holds the tested pattern and says wha
 
 **Goal:** Know which anchors and attributes, and as of when.
 
-1. Ask which database and schema hold the model, and which anchors (or nexuses) and which of their attributes to expose. Keep it to one subject area. For every metric, ask for its **definition** in the user's words (what counts as a customer or an order, as of when, which identity is counted): a semantic view is where an agreed definition is kept once, and two valid definitions are two metrics with their own names (`references/warehouse-practice.md`).
+1. Ask which database and schema hold the model, and which anchors (or nexuses) and which of their attributes to expose. Keep it to one subject area, and ask which things people slice by (those become logical tables too). For every metric, ask for its **definition** in the user's words (what counts as a customer or an order, as of when, which identity is counted): a semantic view is where an agreed definition is kept once, and two valid definitions are two metrics with their own names (`references/warehouse-practice.md`).
 2. Ask as of when: **now** (the current state), a **fixed** point in time, or **chosen per session** with a session variable (`$pit_timestamp`, set with `SET` by whoever queries: a session that has not set it gets a compilation error, so it does not suit a client that opens its own session). A fixed or current point in time is one per semantic view.
 3. For each anchor, read the column names of its point-in-time function (`SELECT * FROM TABLE({db}.{sch}."p{AN}_{Descriptor}"(SYSDATE())) LIMIT 0`) instead of building them from the naming rules.
 
 ### S2: Design
 
-Use one logical table per anchor or nexus, based on `n` for current state or `p` for a chosen time. Declare `PRIMARY KEY` at the actual grain (identity with a chosen positor, or identity and positor in crt). Before counting, filter to the identities that exist or qualify at the chosen time; a bare count of anchor IDs is not a historical headcount. Use the descriptions as comments. Ties as semantic relationships are not tested (see the reference).
+Use one logical table per anchor or nexus, based on `n` for current state or `p` for a chosen time. Declare `PRIMARY KEY` at the actual grain (identity with a chosen positor, or identity and positor in crt). Before counting, filter to the identities that exist or qualify at the chosen time; a bare count of anchor IDs is not a historical headcount. Use the descriptions as comments. Slice a nexus by the things it refers to with `RELATIONSHIPS`: a required role is a relationship from the nexus to the anchor, and an optional role goes through its tie (nexus, then tie, then anchor). This was tested on Snowflake over base tables, and the rows that have no tie row show as an empty group instead of vanishing (`references/semantic-views.md`, *Slicing a nexus by its anchors*). Include the anchors the users will group by, such as cost center, project or account, as logical tables with their name and description as dimensions; a view whose only dimensions are the nexus's own dates and types cannot answer how much per project. Give each dimension and metric a `COMMENT`.
 
 **⚠️ STOP**: Present the semantic view for review before creating it.
 
@@ -381,6 +384,8 @@ LOAD_FINAL                     (finalizer: the integrity checks)
 
 **Finalizer.** `CREATE TASK LOAD_FINAL WAREHOUSE = {wh} FINALIZE = LOAD_ROOT AS ...` runs after the other tasks complete or fail (not if the root is skipped). Use it to log validation results, not to infer execution success. Publish only after all expected work and validation have succeeded (`references/metadata.md`).
 
+**Keep to the batch log of `references/metadata.md`**, with its separate `EXECUTION_STATUS`, `INTEGRITY_STATUS` and `PUBLICATION_STATUS`; do not replace it with one free-text status. The finalizer's **first** statement closes the batch: it reads the run's task history and sets `EXECUTION_STATUS` to `SUCCEEDED` or `FAILED` (any expected task failed or was skipped), so that no batch is left `RUNNING`. Only then does it run `IntegrityViolations` and the custom rule views, record `INTEGRITY_STATUS` (`PASSED`, or `VIOLATIONS` with the counts), and leave `PUBLICATION_STATUS` at `UNPUBLISHED` when there are violations. **A batch with violations is never reported as finished successfully.** Test the finalizer once with a run that fails: a finalizer that itself fails leaves the batch open. A batch left `RUNNING` by a crashed run is closed by hand, after checking that none of its tasks is still running.
+
 **Limits of a task graph (Snowflake):** at most **1,000 tasks** per graph, **100 child tasks** per task and **100 predecessors** per task. Count the tasks before creating them (root, knots, anchors, attributes, ties, nexuses, nexus attributes, finalizer) and then:
 - more than 99 anchors and ties directly under the root: put a layer of grouping tasks (no work) between the root and them;
 - an anchor with more than 100 attributes, or a tie with more than 100 predecessors: group;
@@ -451,6 +456,8 @@ WHERE src.{value_col} IS NOT NULL
 ORDER BY owner_id;
 ```
 
+**One value per owner.** Before inserting an attribute from a source with several rows, or from several sources, check `COUNT(DISTINCT val) > 1` for each owner. Where sources disagree, apply a **stated precedence** (say which source wins, for example the ledger over the task system, and put it in the assumptions) or stop and report the count. Never pick with `ANY_VALUE`, `MIN`, `MAX` or `DISTINCT` over the union: the pick can differ from one load to the next, and each flip is stored as a change of the value, so the history is false.
+
 **Historized attributes, ordered snapshots only.** Prepare `{validated_snapshot}` as one non-null value and time per resolved owner (`id`, `val`, `changed_at`). If actual changing time is unavailable, use a stable observation timestamp, not a fresh `SYSDATE()` on retry (`references/time.md`). Recognize completed input replays and remove exact versions already stored. Run the preflight and write under the same writer exclusion:
 
 ```sql
@@ -512,6 +519,8 @@ WHERE NOT EXISTS (
 
 Insert the nexus and its identifier mapping in one DML transaction. Each dependent attribute or tie task then resolves the event through that mapping, including events loaded in earlier batches. This lets a late attribute or optional relationship load without creating a second event. Keep optional roles in separate ties; do not put nullable FKs in the nexus.
 
+**When a role does not resolve, the model is wrong, not the load.** A `NOT NULL` error on a role column, or a source row that finds no anchor, means the role is optional (or the identity list is incomplete). **Stop**: count the rows concerned and report them, and go back to R2 or E2 to move the role to a tie. Do not make the statement pass with `COALESCE(x, 0)`, `-1`, an "unknown" row or a dummy anchor. The rows would point at an identity that does not exist, the declared `RELY` keys would be false, and the integrity checks would report the whole population.
+
 Before publication, check graph execution and integrity separately (`references/metadata.md`). Use the generated `IntegrityViolations` and custom rule views, or validate the hand-written model as in `ddl-patterns.md`. Check before readers can query invalid data under `RELY`; detecting violations after exposing the rows does not protect query results.
 
 **⚠️ STOP**: Present the task graph design (the dependencies, the number of tasks against the limits in L1, and the compute) and the load SQL for approval before creating tasks.
@@ -560,6 +569,12 @@ An order date or a birth date is an attribute of the thing (happening time). `Ch
 ### No Hashed Identities
 Identities are sequence integers. A hash of a natural key that can change becomes another thing, and costs several times the space (`references/identity-and-keys.md`).
 
+### No Sentinel Identities
+A role that is sometimes absent is a tie that sometimes has no row. Do not store `0`, `-1` or a placeholder anchor in a nexus role: the key is declared `RELY`, so a reference to nothing is a false statement that the optimizer is allowed to trust, and every query that joins through it loses those rows silently. Missing means no row (`references/modeling-practice.md`, *Optional participants*).
+
+### Sources That Disagree
+When two sources describe the same property of the same thing, decide which wins before loading, or load both with a positor in a crt model. `ANY_VALUE` is not a decision (see *One value per owner* in the load patterns).
+
 ### Rules Over Time
 A rule that applies in every time slice needs an interval or boundary check, not a row-local `CHECK`. Use a violation view (`references/constraints.md`).
 
@@ -587,6 +602,7 @@ All role columns and attribute owner columns have `RELY` FK constraints referenc
 - ✋ After E2: Extension DDL approved
 - ✋ After C1 and C2: the rule, and the view that checks it
 - ✋ After L2: Task graph and load SQL approved
+- ✋ After a failed load: any change to the load SQL that changes what is loaded (a default, a filter, a precedence rule) goes back to the user before it is run
 - ✋ Before any truncate / full rebuild: explicit confirmation
 
 ## Output
